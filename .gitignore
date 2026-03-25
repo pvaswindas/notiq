@@ -1,0 +1,217 @@
+# ================================
+
+# PYTHON (Core)
+
+# ================================
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# C extensions
+
+*.so
+
+# ================================
+
+# DISTRIBUTION / BUILD
+
+# ================================
+
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# ================================
+
+# VIRTUAL ENVIRONMENTS
+
+# ================================
+
+.env
+.env.*
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# ================================
+
+# ENV / SECRETS
+
+# ================================
+
+*.env
+*.env.local
+*.env.*.local
+
+# Secrets
+
+secrets.json
+credentials.json
+
+# ================================
+
+# LOGS & RUNTIME FILES
+
+# ================================
+
+*.log
+logs/
+tmp/
+*.pid
+*.seed
+*.out
+*.err
+
+# ================================
+
+# TEST / COVERAGE
+
+# ================================
+
+.coverage
+.coverage.*
+.cache/
+pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ================================
+
+# TYPE CHECKING / LINT
+
+# ================================
+
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+.pyre/
+.pytype/
+
+# ================================
+
+# IDE / EDITOR
+
+# ================================
+
+# VS Code
+
+.vscode/
+
+# JetBrains (PyCharm, etc.)
+
+.idea/
+
+# Sublime
+
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+
+*.swp
+*.swo
+
+# ================================
+
+# OS FILES
+
+# ================================
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ================================
+
+# DOCKER
+
+# ================================
+
+docker-compose.override.yml
+
+# ================================
+
+# DATABASE / LOCAL STORAGE
+
+# ================================
+
+*.db
+*.sqlite3
+
+# ================================
+
+# QUEUE / CACHE (LOCAL DEV)
+
+# ================================
+
+redis-data/
+*.rdb
+dump.rdb
+
+# ================================
+
+# MIGRATIONS (OPTIONAL — depends on strategy)
+
+# ================================
+
+# Uncomment if you want to ignore auto-generated migrations
+
+# migrations/versions/
+
+# ================================
+
+# SECURITY (CRITICAL)
+
+# ================================
+
+*.pem
+*.key
+*.crt
+
+# ================================
+
+# MISC
+
+# ================================
+
+*.bak
+*.tmp
+*.temp
+
+# ================================
+
+# PROJECT-SPECIFIC (NOTIQ)
+
+# ================================
+
+# Local debug configs
+
+local_settings.py
+
+# Experimental scripts
+
+scripts/tmp/
+
+# Worker crash dumps (future)
+
+worker_dumps/
