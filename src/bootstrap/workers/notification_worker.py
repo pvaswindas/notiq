@@ -1,100 +1,50 @@
 import asyncio
-from dataclasses import replace
+import logging
 
 from src.modules.notifications.application.use_cases.process_delivery_job_use_case import ProcessDeliveryJobUseCase
-from src.modules.notifications.ports.event_queue_port import EventQueuePort
+from src.modules.notifications.ports.delivery_job_repository_port import DeliveryJobRepositoryPort
 
 
 class NotificationWorker:
     """
     Purpose:
-    - Run asynchronous queue consumption for notification delivery.
+    - Run asynchronous pull-based processing for notification delivery.
 
     Responsibilities:
-    - Pull jobs from EventQueuePort.
-    - Delegate delivery to ProcessDeliveryJobUseCase.
-    - Retry failed deliveries with basic exponential backoff.
-
-    Inputs:
-    - event_queue: EventQueuePort
-    - process_delivery_job_use_case: ProcessDeliveryJobUseCase
-
-    Outputs:
-    - None
+    - Poll pending jobs from DeliveryJobRepositoryPort.
+    - Process jobs in bounded batches.
+    - Sleep between polling iterations to avoid tight loops.
 
     Constraints:
     - Must use dependency injection and avoid infrastructure construction.
     """
 
-    def __init__(self, event_queue: EventQueuePort, process_delivery_job_use_case: ProcessDeliveryJobUseCase) -> None:
-        """
-        Purpose:
-        - Construct worker with injected queue port and delivery use case.
-
-        Responsibilities:
-        - Store collaborators for processing loop.
-
-        Inputs:
-        - event_queue: EventQueuePort
-        - process_delivery_job_use_case: ProcessDeliveryJobUseCase
-
-        Outputs:
-        - None
-
-        Constraints:
-        - Dependencies must remain abstractions or application components.
-        """
-
-        self._event_queue = event_queue
+    def __init__(
+        self,
+        delivery_job_repository: DeliveryJobRepositoryPort,
+        process_delivery_job_use_case: ProcessDeliveryJobUseCase,
+        batch_size: int = 50,
+        poll_interval_seconds: float = 1.0,
+    ) -> None:
+        self._delivery_job_repository = delivery_job_repository
         self._process_delivery_job_use_case = process_delivery_job_use_case
+        self._batch_size = batch_size
+        self._poll_interval_seconds = poll_interval_seconds
+        self._logger = logging.getLogger(__name__)
 
-    async def process_next(self) -> None:
-        """
-        Purpose:
-        - Process a single queued delivery job.
-
-        Responsibilities:
-        - Dequeue one job.
-        - Invoke delivery orchestration.
-        - Requeue failures with bounded exponential backoff.
-
-        Inputs:
-        - None.
-
-        Outputs:
-        - None
-
-        Constraints:
-        - Retry count cannot exceed job.max_attempts.
-        """
-
-        job = await self._event_queue.dequeue()
-        try:
-            await self._process_delivery_job_use_case.execute(job)
-        except Exception:
-            next_attempt = job.attempt + 1
-            if next_attempt < job.max_attempts:
-                backoff_seconds = min(2 ** next_attempt, 30)
-                await asyncio.sleep(backoff_seconds)
-                await self._event_queue.requeue(replace(job, attempt=next_attempt))
+    async def process_batch(self) -> int:
+        jobs = await self._delivery_job_repository.get_pending_jobs(limit=self._batch_size)
+        for job in jobs:
+            try:
+                await self._process_delivery_job_use_case.execute(job)
+            except Exception:
+                self._logger.exception(
+                    "unexpected worker failure while processing notification job",
+                    extra={"job_id": job.job_id, "workspace_id": job.workspace_id},
+                )
+        return len(jobs)
 
     async def run_forever(self) -> None:
-        """
-        Purpose:
-        - Continuously process notification jobs.
-
-        Responsibilities:
-        - Execute one-job processing inside an infinite async loop.
-
-        Inputs:
-        - None.
-
-        Outputs:
-        - None
-
-        Constraints:
-        - Intended for managed bootstrap lifecycle.
-        """
-
         while True:
-            await self.process_next()
+            await self.process_batch()
+            await asyncio.sleep(self._poll_interval_seconds)
