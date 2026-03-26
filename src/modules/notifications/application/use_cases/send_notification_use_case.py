@@ -8,32 +8,21 @@ from src.modules.notifications.domain.events.notification_requested import Notif
 from src.modules.notifications.domain.repositories import ChannelRepository, IdempotencyRepository
 from src.modules.notifications.domain.services.idempotency_service import IdempotencyService
 from src.modules.notifications.domain.services.rate_limit_service import RateLimitService
-from src.modules.notifications.ports.event_queue_port import EventQueuePort
+from src.modules.notifications.ports.delivery_job_repository_port import DeliveryJobRepositoryPort
 from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
 
 
 class SendNotificationUseCase:
     """
     Purpose:
-    - Orchestrate event submission into queued delivery jobs.
+    - Orchestrate event submission into persistent delivery jobs.
 
     Responsibilities:
     - Validate submission preconditions.
-    - Fetch active channels.
-    - Deduplicate event-channel combinations.
-    - Map messages and enqueue delivery jobs.
-
-    Inputs:
-    - channel_repository: ChannelRepository
-    - idempotency_repository: IdempotencyRepository
-    - event_queue: EventQueuePort
-    - message_mapper: EventMessageMapper
-    - idempotency_service: IdempotencyService
-    - rate_limit_service: RateLimitService
-    - id_generator: IdGeneratorPort
-
-    Outputs:
-    - QueuedDeliveryResultDTO from execute.
+    - Fetch active channels by workspace.
+    - Enforce rate limiting.
+    - Enforce race-safe idempotency.
+    - Map messages and persist delivery jobs.
 
     Constraints:
     - Must not call provider adapters directly.
@@ -43,69 +32,27 @@ class SendNotificationUseCase:
         self,
         channel_repository: ChannelRepository,
         idempotency_repository: IdempotencyRepository,
-        event_queue: EventQueuePort,
+        delivery_job_repository: DeliveryJobRepositoryPort,
         message_mapper: EventMessageMapper,
         idempotency_service: IdempotencyService,
         rate_limit_service: RateLimitService,
         id_generator: IdGeneratorPort,
     ) -> None:
-        """
-        Purpose:
-        - Construct send-notification orchestration dependencies.
-
-        Responsibilities:
-        - Store repositories, ports, and domain services used by execute.
-
-        Inputs:
-        - channel_repository: ChannelRepository
-        - idempotency_repository: IdempotencyRepository
-        - event_queue: EventQueuePort
-        - message_mapper: EventMessageMapper
-        - idempotency_service: IdempotencyService
-        - rate_limit_service: RateLimitService
-        - id_generator: IdGeneratorPort
-
-        Outputs:
-        - None
-
-        Constraints:
-        - Dependencies must remain framework-independent.
-        """
-
         self._channel_repository = channel_repository
         self._idempotency_repository = idempotency_repository
-        self._event_queue = event_queue
+        self._delivery_job_repository = delivery_job_repository
         self._message_mapper = message_mapper
         self._idempotency_service = idempotency_service
         self._rate_limit_service = rate_limit_service
         self._id_generator = id_generator
 
     async def execute(self, command: SendNotificationCommand) -> QueuedDeliveryResultDTO:
-        """
-        Purpose:
-        - Convert an inbound notification command into queued delivery jobs.
-
-        Responsibilities:
-        - Validate essential command input.
-        - Build domain event context.
-        - Apply rate-limit and idempotency checks.
-        - Enqueue jobs for all active channels.
-
-        Inputs:
-        - command: SendNotificationCommand
-
-        Outputs:
-        - QueuedDeliveryResultDTO
-
-        Constraints:
-        - Event payload must remain dict-based and generic.
-        """
-
         if not command.workspace_id or not command.event_id or not command.event_name:
             raise ValueError("workspace_id, event_id, and event_name are required")
 
         NotificationRequested(workspace_id=command.workspace_id, event_id=command.event_id)
 
+        # Rate limit is evaluated before persistence work to protect downstream capacity.
         if not self._rate_limit_service.allow_workspace(command.workspace_id):
             return QueuedDeliveryResultDTO(enqueued_jobs=0, skipped_duplicates=0)
 
@@ -116,18 +63,22 @@ class SendNotificationUseCase:
             payload=command.payload,
         )
 
+        # Workspace-scoped channel routing.
         active_channels = await self._channel_repository.list_active_by_workspace(command.workspace_id)
         event_fingerprint = self._idempotency_service.create_event_fingerprint(event)
 
         enqueued_jobs = 0
         skipped_duplicates = 0
+
         for channel in active_channels:
             channel_fingerprint = self._idempotency_service.create_channel_fingerprint(
                 event_fingerprint=event_fingerprint,
                 channel_id=channel.channel_id,
             )
 
-            if await self._idempotency_repository.exists(channel_fingerprint.value):
+            # Atomic claim prevents races between concurrent submissions.
+            claimed = await self._idempotency_repository.claim(channel_fingerprint.value)
+            if not claimed:
                 skipped_duplicates += 1
                 continue
 
@@ -142,8 +93,7 @@ class SendNotificationUseCase:
                 dedupe_key=channel_fingerprint.value,
             )
 
-            await self._event_queue.enqueue(job)
-            await self._idempotency_repository.save(channel_fingerprint.value)
+            await self._delivery_job_repository.save(job)
             NotificationEnqueued(workspace_id=event.workspace_id, job_id=job.job_id, channel_id=channel.channel_id)
             enqueued_jobs += 1
 
