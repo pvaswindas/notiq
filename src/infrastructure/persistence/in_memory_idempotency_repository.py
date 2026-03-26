@@ -1,3 +1,5 @@
+import asyncio
+
 from src.modules.notifications.domain.repositories import IdempotencyRepository
 
 
@@ -38,6 +40,7 @@ class InMemoryIdempotencyRepository(IdempotencyRepository):
         """
 
         self._keys: set[str] = set()
+        self._lock = asyncio.Lock()
 
     async def exists(self, dedupe_key: str) -> bool:
         """
@@ -57,7 +60,32 @@ class InMemoryIdempotencyRepository(IdempotencyRepository):
         - Must be side-effect free.
         """
 
-        return dedupe_key in self._keys
+        async with self._lock:
+            return dedupe_key in self._keys
+
+    async def claim(self, dedupe_key: str) -> bool:
+        """
+        Purpose:
+        - Atomically claim dedupe key in in-memory store.
+
+        Responsibilities:
+        - Insert unseen key and report success.
+
+        Inputs:
+        - dedupe_key: str
+
+        Outputs:
+        - bool
+
+        Constraints:
+        - Must be safe under concurrent coroutines.
+        """
+
+        async with self._lock:
+            if dedupe_key in self._keys:
+                return False
+            self._keys.add(dedupe_key)
+            return True
 
     async def save(self, dedupe_key: str) -> None:
         """
@@ -77,4 +105,5 @@ class InMemoryIdempotencyRepository(IdempotencyRepository):
         - Operation is idempotent.
         """
 
-        self._keys.add(dedupe_key)
+        async with self._lock:
+            self._keys.add(dedupe_key)
