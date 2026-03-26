@@ -47,7 +47,7 @@ class IdempotencyRepository(ABC):
     - Define storage contract for deduplication keys.
 
     Responsibilities:
-    - Check and persist processed fingerprints.
+    - Check and atomically claim processed fingerprints.
 
     Inputs:
     - dedupe_key: str
@@ -79,10 +79,30 @@ class IdempotencyRepository(ABC):
         """
 
     @abstractmethod
+    async def claim(self, dedupe_key: str) -> bool:
+        """
+        Purpose:
+        - Atomically claim a dedupe key for first-time processing.
+
+        Responsibilities:
+        - Persist key if absent and return True.
+        - Return False when key already exists.
+
+        Inputs:
+        - dedupe_key: str
+
+        Outputs:
+        - bool
+
+        Constraints:
+        - Must be concurrency-safe.
+        """
+
+    @abstractmethod
     async def save(self, dedupe_key: str) -> None:
         """
         Purpose:
-        - Persist a dedupe key after successful enqueue.
+        - Persist a dedupe key.
 
         Responsibilities:
         - Record key for future duplicate suppression.
