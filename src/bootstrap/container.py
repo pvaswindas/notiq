@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from src.bootstrap.workers.notification_worker import NotificationWorker
 from src.infrastructure.id_generator.uuid_id_generator import UUIDIdGenerator
 from src.infrastructure.persistence.in_memory_channel_repository import InMemoryChannelRepository
+from src.infrastructure.persistence.in_memory_delivery_job_repository import InMemoryDeliveryJobRepository
 from src.infrastructure.persistence.in_memory_idempotency_repository import InMemoryIdempotencyRepository
-from src.infrastructure.queue.in_memory_event_queue import InMemoryEventQueue
 from src.modules.notifications.adapters.outbound.telegram.telegram_notifier import TelegramNotifier
 from src.modules.notifications.application.mappers.event_message_mapper import EventMessageMapper
 from src.modules.notifications.application.services.sender_registry import SenderRegistry
@@ -93,29 +93,34 @@ class ContainerFactory:
 
         channel_repository = InMemoryChannelRepository(channels=seed_channels)
         idempotency_repository = InMemoryIdempotencyRepository()
-        event_queue = InMemoryEventQueue()
+        delivery_job_repository = InMemoryDeliveryJobRepository()
         id_generator = UUIDIdGenerator()
 
         telegram_sender = TelegramNotifier()
         sender_registry = SenderRegistry(senders={"telegram": telegram_sender})
         message_mapper = EventMessageMapper()
         idempotency_service = IdempotencyService()
-        rate_limit_service = RateLimitService()
+        rate_limit_service = RateLimitService(max_events_per_minute=120)
 
         send_notification_use_case = SendNotificationUseCase(
             channel_repository=channel_repository,
             idempotency_repository=idempotency_repository,
-            event_queue=event_queue,
+            delivery_job_repository=delivery_job_repository,
             message_mapper=message_mapper,
             idempotency_service=idempotency_service,
             rate_limit_service=rate_limit_service,
             id_generator=id_generator,
         )
 
-        process_delivery_job_use_case = ProcessDeliveryJobUseCase(sender_registry=sender_registry)
+        process_delivery_job_use_case = ProcessDeliveryJobUseCase(
+            sender_registry=sender_registry,
+            delivery_job_repository=delivery_job_repository,
+        )
         notification_worker = NotificationWorker(
-            event_queue=event_queue,
+            delivery_job_repository=delivery_job_repository,
             process_delivery_job_use_case=process_delivery_job_use_case,
+            batch_size=50,
+            poll_interval_seconds=1.0,
         )
 
         return Container(
