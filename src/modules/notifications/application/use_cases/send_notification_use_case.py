@@ -38,6 +38,23 @@ class SendNotificationUseCase:
         rate_limit_service: RateLimitService,
         id_generator: IdGeneratorPort,
     ) -> None:
+        """
+        Purpose:
+        - Initialize dependencies required for notification intake orchestration.
+
+        Inputs:
+        - channel_repository: Workspace channel retrieval contract.
+        - idempotency_repository: Dedupe persistence contract.
+        - delivery_job_repository: Delivery job persistence contract.
+        - message_mapper: Event-to-message mapping component.
+        - idempotency_service: Fingerprint generation service.
+        - rate_limit_service: Workspace admission policy service.
+        - id_generator: Job identifier generator.
+
+        Side effects:
+        - Stores references for use by execute().
+        """
+
         self._channel_repository = channel_repository
         self._idempotency_repository = idempotency_repository
         self._delivery_job_repository = delivery_job_repository
@@ -47,6 +64,22 @@ class SendNotificationUseCase:
         self._id_generator = id_generator
 
     async def execute(self, command: SendNotificationCommand) -> QueuedDeliveryResultDTO:
+        """
+        Purpose:
+        - Execute the notification intake workflow for a single inbound event command.
+
+        Inputs:
+        - command: Notification request command containing workspace and event payload.
+
+        Outputs:
+        - QueuedDeliveryResultDTO with counts of enqueued and duplicate-skipped jobs.
+
+        Side effects:
+        - Reads workspace channels.
+        - Performs rate-limit and idempotency checks.
+        - Persists delivery jobs for asynchronous worker processing.
+        """
+
         if not command.workspace_id or not command.event_id or not command.event_name:
             raise ValueError("workspace_id, event_id, and event_name are required")
 

@@ -27,11 +27,40 @@ class ProcessDeliveryJobUseCase:
         sender_registry: SenderRegistryPort,
         delivery_job_repository: DeliveryJobRepositoryPort,
     ) -> None:
+        """
+        Purpose:
+        - Initialize dependencies for delivery execution orchestration.
+
+        Inputs:
+        - sender_registry: Provider sender resolver contract.
+        - delivery_job_repository: Delivery lifecycle persistence contract.
+
+        Side effects:
+        - Stores references and initializes component logger.
+        """
+
         self._sender_registry = sender_registry
         self._delivery_job_repository = delivery_job_repository
         self._logger = logging.getLogger(__name__)
 
     async def execute(self, job: DeliveryJob) -> None:
+        """
+        Purpose:
+        - Execute delivery for one persisted job and manage its lifecycle transitions.
+
+        Inputs:
+        - job: DeliveryJob pulled by worker polling.
+
+        Outputs:
+        - None. Lifecycle updates are persisted in repository.
+
+        Side effects:
+        - Transitions status across PROCESSING, SUCCESS, PENDING(retry), or FAILED.
+        - Calls outbound provider sender through registry.
+        - Persists retry timing and error state.
+        - Emits lifecycle logs for observability.
+        """
+
         processing_job = replace(
             job,
             status=DeliveryJobStatus.PROCESSING,
@@ -108,10 +137,32 @@ class ProcessDeliveryJobUseCase:
 
     @staticmethod
     def _is_transient_error(exc: Exception) -> bool:
+        """
+        Purpose:
+        - Classify exceptions that are safe to retry.
+
+        Inputs:
+        - exc: Exception raised by sender or adapter layer.
+
+        Outputs:
+        - bool indicating whether retry backoff flow should be used.
+        """
+
         return isinstance(exc, (TimeoutError, ConnectionError, OSError))
 
     @staticmethod
     def _truncate_error(error: str) -> str:
+        """
+        Purpose:
+        - Bound stored error payload size for persistence and logging safety.
+
+        Inputs:
+        - error: Raw exception text.
+
+        Outputs:
+        - Truncated string capped at 1024 characters.
+        """
+
         if len(error) <= 1024:
             return error
         return f"{error[:1021]}..."

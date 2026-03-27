@@ -14,10 +14,35 @@ class RateLimitService:
     """
 
     def __init__(self, max_events_per_minute: int = 120) -> None:
+        """
+        Purpose:
+        - Initialize fixed-window rate limiting policy parameters.
+
+        Inputs:
+        - max_events_per_minute: Per-workspace budget per 60-second window.
+
+        Side effects:
+        - Creates in-memory workspace window state.
+        """
+
         self._max_events_per_minute = max_events_per_minute
         self._state: dict[str, tuple[datetime, int]] = {}
 
     def allow_workspace(self, workspace_id: str) -> bool:
+        """
+        Purpose:
+        - Decide whether a workspace can submit another notification event now.
+
+        Inputs:
+        - workspace_id: Tenant identifier for admission control.
+
+        Outputs:
+        - bool indicating whether the event is admitted.
+
+        Side effects:
+        - Updates in-memory counters/window boundaries for the workspace.
+        """
+
         now = datetime.now(timezone.utc)
         window_start, count = self._state.get(workspace_id, (now, 0))
 

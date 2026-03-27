@@ -1,216 +1,136 @@
 # Notiq
 
-Notiq is a **multi-tenant notification infrastructure platform** designed to handle event-driven communication across multiple delivery channels.
+Notiq is a multi-tenant notification infrastructure platform for accepting product events and delivering notifications through external providers such as Telegram.
 
-It provides a **scalable, extensible, and decoupled system** for routing and delivering notifications without embedding notification logic inside individual applications.
+It exists to prevent every product team from rebuilding the same operationally sensitive notification pipeline: routing, deduplication, throttling, retries, and asynchronous delivery.
 
----
+## 1. Introduction
 
-## Why Notiq?
+In most systems, notifications begin as application events (`user.created`, `payment.failed`, etc.).
+Without a dedicated platform, event handling logic is duplicated across services, delivery reliability is inconsistent, and provider integrations leak into business code.
 
-Modern systems require:
+Notiq centralizes this concern.
+It provides a clean API for event submission and a backend pipeline that handles delivery orchestration with clear architectural boundaries.
 
-* Reliable event delivery
-* Multi-channel notifications (Telegram, Email, Slack, etc.)
-* Decoupled infrastructure
-* Asynchronous processing
+## 2. Core Concepts
 
-Most applications re-implement this logic repeatedly.
+### Workspace
+A workspace is the tenant boundary. All channels, limits, and delivery jobs are scoped to a workspace.
 
-**Notiq solves this by acting as a centralized notification engine.**
+### Channel
+A channel is a configured delivery destination for a workspace (for example, a Telegram chat).
+It includes a provider key and destination address.
 
----
+### Event
+An event is the inbound notification trigger. It contains an event name, payload, and workspace context.
+The event payload remains intentionally generic.
 
-## Core Capabilities
+### DeliveryJob
+A delivery job is the executable delivery unit produced from `(event, channel)`.
+It tracks lifecycle status (`PENDING`, `PROCESSING`, `SUCCESS`, `FAILED`), retry state, and error context.
 
-* Event-driven notification processing
-* Multi-tenant (workspace-based isolation)
-* Channel-based routing
-* Provider abstraction (Telegram today, extensible tomorrow)
-* Queue-based asynchronous delivery
-* Idempotent processing
-* Rate limiting (extensible)
-* Clean architecture (Hexagonal)
+## 3. High-Level Architecture
 
----
+Notiq uses Hexagonal Architecture (Ports and Adapters) inside a modular monolith.
 
-## Architecture Overview
+Why this architecture:
+- Keep business logic independent from frameworks and providers
+- Make infrastructure replaceable without touching core logic
+- Keep testing focused and deterministic at each boundary
 
-Notiq follows a **Hexagonal Architecture (Ports & Adapters)** combined with a **modular monolith design**.
+High-level layers:
+- `domain`: entities, value objects, policy services
+- `application`: use cases and orchestration
+- `ports`: contracts consumed by application/domain
+- `adapters`: HTTP and provider-specific integrations
+- `infrastructure`: concrete persistence/queue/idempotency implementations
+- `bootstrap`: dependency injection and runtime startup/workers
 
-### Key Principles
+## 4. Notification Flow
 
-* Business logic is isolated from infrastructure
-* External systems are replaceable
-* Clear separation of concerns
-* Deterministic and testable core
+End-to-end runtime flow:
+1. Client sends `POST /notifications/send` with workspace + event payload.
+2. HTTP adapter maps request to `SendNotificationUseCase`.
+3. Use case validates input, checks workspace rate limits, and computes idempotency fingerprints.
+4. Active channels are selected for the workspace.
+5. One `DeliveryJob` is created per channel and persisted in the delivery queue store.
+6. Background worker polls pending delivery jobs in batches.
+7. `ProcessDeliveryJobUseCase` executes each job.
+8. Sender registry resolves provider adapter (for example Telegram).
+9. Provider attempts delivery.
+10. Job transitions to `SUCCESS`, `PENDING` (with backoff), or `FAILED`.
 
----
+## 5. Project Structure
 
-## Project Structure
-
-```
+```text
 src/
-
-  bootstrap/                # Application entry & wiring
-    container.py            # Dependency injection
-    workers/                # Background workers
+  bootstrap/
+    app.py                     # FastAPI app factory and lifecycle hooks
+    container.py               # Composition root (dependency injection)
+    workers/
+      notification_worker.py   # Polling worker for delivery jobs
 
   modules/
     notifications/
-      domain/               # Core business entities & logic
-      application/          # Use cases & orchestration
-      ports/                # Interfaces (contracts)
-      adapters/             # External interaction (HTTP, providers)
+      domain/                  # Entities, value objects, policies
+      application/             # Use cases, DTOs, mappers, registry
+      ports/                   # Interface contracts
+      adapters/                # HTTP inbound, provider outbound
 
-  infrastructure/           # Concrete implementations
-    persistence/            # Repositories
-    queue/                  # Event queue
-    id_generator/           # ID generation
+  infrastructure/
+    persistence/               # In-memory repositories
+    queue/                     # Queue abstraction/adapter (legacy seam)
+    id_generator/              # ID generation implementation
 
-  shared/                   # Pure utilities (no business logic)
+  shared/                      # Shared utilities
 ```
 
----
+## 6. Running the System
 
-## Core Flow
-
-```
-HTTP Request
-   ↓
-SendNotificationUseCase
-   ↓
-EventQueue (async)
-   ↓
-Worker
-   ↓
-ProcessDeliveryJobUseCase
-   ↓
-SenderRegistry
-   ↓
-Provider (e.g., Telegram)
-```
-
----
-
-## Key Concepts
-
-### Workspace
-
-Represents a tenant. All operations are scoped to a workspace.
-
-### Channel
-
-Defines a delivery destination (e.g., Telegram chat).
-
-### Provider
-
-Handles message delivery (Telegram, Email, etc.).
-
-### Event
-
-A generic payload representing a notification trigger.
-
-### Delivery Job
-
-A queued unit of work for sending a notification.
-
----
-
-## Technology Choices
-
-* Python 3.11+
-* Async-first design (`async/await`)
-* In-memory implementations (initial phase)
-* Designed for future:
-
-  * Redis (queue)
-  * PostgreSQL (persistence)
-  * External providers
-
----
-
-## Design Decisions
-
-### Why Hexagonal Architecture?
-
-* Decouples business logic from infrastructure
-* Enables independent testing
-* Makes providers replaceable
-
-### Why Queue-Based Processing?
-
-* Improves reliability
-* Handles spikes
-* Enables retries and backoff
-
-### Why Modular Monolith?
-
-* Simpler than microservices
-* Maintains strong boundaries
-* Easier to evolve
-
----
-
-## Current Status
-
-* Core architecture implemented
-* Notification flow established
-* In-memory infrastructure in place
-
-> System is in **foundational stage**, ready for:
->
-> * persistence upgrade
-> * real queue integration
-> * additional providers
-
----
-
-## Running the Project
+### Start
 
 ```bash
-# Install dependencies (if any)
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# Run application
-python src/main.py
+python3 src/main.py
 ```
 
----
+### Basic runtime validation
 
-## Development Guidelines
+```bash
+python3 -m compileall -q src
+```
 
-### Strict Rules
+### Tests
 
-* Do NOT mix layers
-* Do NOT import infrastructure into application/domain
-* Do NOT add business logic into adapters
-* Keep events generic and product-agnostic
+Automated tests are not yet committed in this baseline.
+Use syntax validation plus API smoke checks during development:
 
----
+```bash
+python3 -m compileall -q src
+curl -X POST http://127.0.0.1:8000/notifications/send \
+  -H 'Content-Type: application/json' \
+  -d '{"workspace_id":"workspace-1","event_id":"evt-1","event_name":"healthcheck","payload":{}}'
+```
 
-## Future Roadmap
+### Example request
 
-* Redis-backed queue
-* PostgreSQL persistence
-* Slack / Email providers
-* Webhook support
-* Retry & dead-letter queues
-* Observability (logging + tracing)
-* Rate limiting enforcement
-* Multi-workspace scaling
+```bash
+curl -X POST http://127.0.0.1:8000/notifications/send \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "workspace_id": "workspace-1",
+    "event_id": "evt-1001",
+    "event_name": "order.created",
+    "payload": {"order_id": "ORD-42", "total": 1999}
+  }'
+```
 
----
+## 7. Future Roadmap
 
-## Contributing
-
-1. Follow architecture rules strictly
-2. Maintain clean separation of concerns
-3. Write clear docstrings
-4. Avoid shortcuts that break boundaries
-
----
-
-## License
-
-This project is licensed under the terms specified in the LICENSE file.
+- Replace in-memory repositories with durable database-backed adapters
+- Introduce provider-specific transient/permanent error taxonomy
+- Add dead-letter handling for repeatedly failed jobs
+- Add metrics, tracing, and structured logging sinks
+- Add additional providers (email, Slack, webhooks)

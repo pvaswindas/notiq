@@ -26,6 +26,20 @@ class NotificationWorker:
         batch_size: int = 50,
         poll_interval_seconds: float = 1.0,
     ) -> None:
+        """
+        Purpose:
+        - Configure worker polling dependencies and loop behavior.
+
+        Inputs:
+        - delivery_job_repository: Source of due pending jobs.
+        - process_delivery_job_use_case: Job execution orchestrator.
+        - batch_size: Maximum jobs processed per iteration.
+        - poll_interval_seconds: Sleep duration between polls.
+
+        Side effects:
+        - Stores injected dependencies and initializes logger.
+        """
+
         self._delivery_job_repository = delivery_job_repository
         self._process_delivery_job_use_case = process_delivery_job_use_case
         self._batch_size = batch_size
@@ -33,6 +47,19 @@ class NotificationWorker:
         self._logger = logging.getLogger(__name__)
 
     async def process_batch(self) -> int:
+        """
+        Purpose:
+        - Poll and process one batch of due delivery jobs.
+
+        Outputs:
+        - int count of jobs attempted in the current batch.
+
+        Side effects:
+        - Reads pending jobs from repository.
+        - Invokes processing use case per job.
+        - Logs unexpected worker-level exceptions.
+        """
+
         jobs = await self._delivery_job_repository.get_pending_jobs(limit=self._batch_size)
         for job in jobs:
             try:
@@ -45,6 +72,14 @@ class NotificationWorker:
         return len(jobs)
 
     async def run_forever(self) -> None:
+        """
+        Purpose:
+        - Run continuous pull-based polling loop for delivery execution.
+
+        Side effects:
+        - Continuously polls, processes batches, and sleeps between iterations.
+        """
+
         while True:
             await self.process_batch()
             await asyncio.sleep(self._poll_interval_seconds)

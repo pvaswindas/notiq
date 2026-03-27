@@ -14,4 +14,13 @@ class SenderRegistryPort(ABC):
 
     @abstractmethod
     def resolve(self, provider_key: str) -> NotificationSenderPort:
-        """Resolve sender implementation for provider key."""
+        """
+        Purpose:
+        - Resolve the outbound sender implementation for a provider key.
+
+        Inputs:
+        - provider_key: Logical provider identifier from channel configuration.
+
+        Outputs:
+        - NotificationSenderPort implementation for provider delivery calls.
+        """
