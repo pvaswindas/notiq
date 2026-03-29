@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: notiq
+      POSTGRES_USER: notiq
+      POSTGRES_PASSWORD: notiq
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notiq -d notiq"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://notiq:notiq@postgres:5432/notiq
+      APP_MODE: api
+      WORKER_ID: app-worker
+      WORKER_BATCH_SIZE: 50
+      WORKER_POLL_INTERVAL_SECONDS: 1.0
+      WORKER_LEASE_SECONDS: 30
+    ports:
+      - "8000:8000"
+    command: python -m src.run
+
+  worker:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://notiq:notiq@postgres:5432/notiq
+      APP_MODE: worker
+      WORKER_ID: worker-1
+      WORKER_BATCH_SIZE: 50
+      WORKER_POLL_INTERVAL_SECONDS: 1.0
+      WORKER_LEASE_SECONDS: 30
+    command: python -m src.run
+
+volumes:
+  postgres_data:
