@@ -6,18 +6,18 @@ from src.modules.notifications.domain.entities.provider_account import ProviderA
 from src.modules.notifications.ports.notification_sender_port import NotificationSenderPort
 
 
-class TelegramNotifier(NotificationSenderPort):
+class EmailNotifier(NotificationSenderPort):
     def __init__(self) -> None:
         self._logger = logging.getLogger(__name__)
 
     async def send(self, job: DeliveryJob, provider_account: ProviderAccount) -> None:
-        if provider_account.provider_key != "telegram":
-            raise ValueError("telegram sender received non-telegram provider account")
+        if provider_account.provider_key != "email":
+            raise ValueError("email sender received non-email provider account")
 
-        # Integrate Telegram API here using provider_account.credentials_ref lookup.
+        # Integrate email provider SDK here using provider_account.credentials_ref lookup.
         await asyncio.sleep(0)
         self._logger.info(
-            "telegram notification sent",
+            "email notification sent",
             extra={
                 "job_id": job.job_id,
                 "workspace_id": job.workspace_id,
