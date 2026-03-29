@@ -1,41 +1,10 @@
 from abc import ABC, abstractmethod
 
 from src.modules.notifications.domain.entities.delivery_job import DeliveryJob
+from src.modules.notifications.domain.entities.provider_account import ProviderAccount
 
 
 class NotificationSenderPort(ABC):
-    """
-    Purpose:
-    - Define outbound contract for provider-specific message delivery.
-
-    Responsibilities:
-    - Send a prepared delivery job through an external provider.
-
-    Inputs:
-    - DeliveryJob
-
-    Outputs:
-    - None
-
-    Constraints:
-    - Implementations must not mutate domain job state.
-    """
-
     @abstractmethod
-    async def send(self, job: DeliveryJob) -> None:
-        """
-        Purpose:
-        - Deliver a prepared message to a provider destination.
-
-        Responsibilities:
-        - Execute provider API call for the given job.
-
-        Inputs:
-        - job: DeliveryJob
-
-        Outputs:
-        - None
-
-        Constraints:
-        - Should raise an exception on delivery failure.
-        """
+    async def send(self, job: DeliveryJob, provider_account: ProviderAccount) -> None:
+        pass
