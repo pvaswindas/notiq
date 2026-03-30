@@ -48,7 +48,8 @@ Primary module (`src/modules/notifications`) follows strict layering:
 - Accept raw event (`workspace_id`, `event_type`, payload).
 - Load active channels from in-memory channel repository.
 - Enqueue one Celery task per `(event, channel)`.
-- Task performs redis-backed idempotency claim and provider send.
+- Task performs redis-backed idempotency claim, scoped rate-limit check, and provider send.
+- Throttled attempts release idempotency key and self-requeue for a later retry.
 
 ## Architectural Intent
 The primary path is engineered for durable, auditable, and replaceable delivery orchestration. The legacy path remains for compatibility and should be treated as a transitional seam, not the target for new feature investment.

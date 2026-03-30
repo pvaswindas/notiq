@@ -58,3 +58,15 @@ Operational teams need predictable lifecycle behavior under failure.
 
 ### Constraint
 Any new status or retry policy must include migration and documentation updates.
+
+## Bounded Throughput Protection (Legacy Compatibility)
+### Why
+Legacy Celery fan-out can burst provider traffic and create avoidable throttling incidents without local controls.
+
+### How
+- Resolve effective policy in order: group -> provider -> tenant -> global.
+- Enforce counters atomically in Redis using fixed-window semantics.
+- On throttle deny, release idempotency key and requeue task with short delay.
+
+### Constraint
+Throttle controls are compatibility safeguards for `/events`; primary architecture evolution should continue in modular notifications flow.

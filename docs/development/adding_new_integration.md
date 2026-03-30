@@ -23,6 +23,13 @@ Use this guide for new outbound provider integrations, storage integrations, or 
 3. Document delivery guarantees (at-most-once, at-least-once) and retry ownership.
 4. Update deployment docs (`docker-compose`, env vars) accordingly.
 
+## Pattern For New Rate-Limit Backend (Legacy `/events`)
+1. Implement `RateLimiterPort` in infrastructure layer.
+2. Preserve atomic check-and-increment semantics for concurrency safety.
+3. Keep key format stable (`scope + key`) unless migration plan is documented.
+4. Ensure throttle deny path remains retry-safe (idempotency key release before requeue).
+5. Update architecture + flow docs with decision order and operational impact.
+
 ## Architecture Constraints
 - Integrations must remain replaceable through ports.
 - Use cases must not import SDK-specific clients.

@@ -32,6 +32,14 @@ Notiq uses Hexagonal Architecture (Ports and Adapters) within a modular monolith
 ## Transitional Reality
 The repository also contains a legacy event-ingestion path (`src/application`, `src/domain`, `src/adapters/tasks`) used by `POST /events` and Celery fan-out. This path should be treated as compatibility infrastructure while new architecture work targets `src/modules/notifications`.
 
+Legacy compatibility now includes a small throttling slice:
+- Domain model: `src/domain/rate_limit/entities.py` (`RateLimitConfig`)
+- Application service: `src/application/services/rate_limit_resolver.py`
+- Ports: `src/ports/rate_limit_config_repository.py`, `src/ports/rate_limiter.py`
+- Infrastructure adapters: in-memory config source and Redis limiter
+
+This slice follows the same ports-and-adapters dependency direction as the primary module.
+
 ## Safe Extension Rule
 Any new capability should first be modeled as:
 1. Domain/application behavior in `src/modules/notifications`.

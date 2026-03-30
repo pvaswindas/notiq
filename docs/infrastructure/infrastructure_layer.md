@@ -50,6 +50,11 @@ Both adapters consume `ProviderAccount.credentials_ref` and are resolved by prov
 ### Redis Integrations (Legacy)
 - Celery broker/backend transport.
 - Redis idempotency store used by legacy Celery task flow.
+- Redis Lua-based fixed-window limiter used by legacy Celery task throttling.
+
+### Legacy Config Integration
+- `InMemoryRateLimitConfigRepository` provides seeded config layers (group, provider, tenant, global).
+- Config lookup is intentionally isolated behind `RateLimitConfigRepositoryPort` for future migration to persistent config stores.
 
 ## Deployment Setup
 
@@ -70,6 +75,8 @@ Key variables from `.env.example` / `settings.py`:
 - `WORKER_LEASE_SECONDS`
 - `MAX_EVENTS_PER_MINUTE`
 - `IDEMPOTENCY_TTL_SECONDS`
+
+Rate-limit policy values in current legacy flow are seeded in code (`InMemoryRateLimitConfigRepository`) rather than loaded from env.
 
 ## Infrastructure Extension Rules
 1. Preserve transaction boundaries and atomicity for claim/update flows.

@@ -57,4 +57,10 @@ Important constraints:
 ## Legacy Application Flow
 `ProcessEventUseCase` in `src/application/use_cases` loads active channels and enqueues Celery tasks.
 
+Legacy flow also uses `RateLimitResolver` in `src/application/services` during task execution to choose scoped throttling policy:
+1. Group policy from `channel.group`.
+2. Provider policy from `channel.provider`.
+3. Tenant policy from `event.workspace_id`.
+4. Global fallback policy.
+
 Use this flow only for compatibility behavior; new orchestration should be added to modular notifications application layer.

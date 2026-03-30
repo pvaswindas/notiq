@@ -22,6 +22,14 @@ Add feature behavior without breaking architecture boundaries or runtime reliabi
 - Returning delivery success semantics from API intake endpoint.
 - Bypassing repository ports with direct ORM/session usage from application layer.
 - Introducing cross-tenant queries without explicit workspace scoping.
+- Adding legacy throttling logic directly inside Celery task body instead of through resolver + ports.
+
+## Legacy Compatibility Feature Rule
+When feature work must touch `/events` compatibility flow:
+1. Keep policy selection in legacy application service (`RateLimitResolver`).
+2. Keep backend-specific counting logic in infrastructure adapter (`RateLimiterPort` implementation).
+3. Preserve idempotency-key release before any manual requeue/retry path.
+4. Update `docs/api/ingest_event.md` and `docs/flows/integration_flow.md` in the same change.
 
 ## Feature Readiness Checklist
 1. Do API docs reflect request/response behavior and error cases?

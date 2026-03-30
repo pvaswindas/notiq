@@ -64,6 +64,11 @@ DON'T:
 ## Legacy Path Rule
 Legacy `src/application` + `src/domain` + Celery-task pipeline is compatibility code. New dependencies should not be added there unless required for backward compatibility.
 
+For compatibility-only additions (for example legacy throttling), keep the same inward dependency rule:
+- Legacy application services may depend on legacy domain models and port interfaces.
+- Legacy tasks may compose concrete adapters but must not absorb policy resolution logic.
+- Redis or other backend specifics must stay in infrastructure adapters behind ports.
+
 ## Review Checklist For PRs
 1. Does any inward layer import outward technology packages?
 2. Does a use case reference concrete adapter/infrastructure classes?

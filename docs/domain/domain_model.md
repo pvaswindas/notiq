@@ -81,4 +81,8 @@ How it interacts:
 ## Legacy Domain (Compatibility)
 Legacy entities `src/domain/entities/event.py` and `src/domain/entities/channel.py` are used by `/events` ingestion and Celery task routing.
 
+Legacy compatibility domain also includes `src/domain/rate_limit/entities.py`:
+- `RateLimitConfig`: immutable policy value (`scope`, `key`, `limit`, `window_seconds`) used by resolver + limiter collaboration.
+- `Channel.group`: optional grouping key that enables coarse throttling buckets for high-priority/low-priority traffic segregation.
+
 These models are intentionally minimal and should not be used for new primary notification features.

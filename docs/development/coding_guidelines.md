@@ -6,6 +6,7 @@
 - Depend on ports in use cases; instantiate adapters only in bootstrap.
 - Keep idempotency behavior deterministic and explicit.
 - Document every architectural behavior change in `docs/` in the same PR.
+- In legacy task flow, keep throttle policy resolution and enforcement behind dedicated service/ports.
 
 ## Layer DO and DON'T
 ### Domain
@@ -42,3 +43,8 @@ DON'T:
 
 ## Compatibility Guidance
 Legacy `src/application` / `src/domain` flow is maintained for compatibility. New primary features should be built in `src/modules/notifications` unless compatibility constraints require otherwise.
+
+For compatibility changes that add throughput controls:
+- Do not hard-code provider-specific throttling branches inside task functions.
+- Prefer scoped policy resolution (`group -> provider -> tenant -> global`) in one service.
+- Keep retry safety by releasing idempotency claims before requeue or raised failure.

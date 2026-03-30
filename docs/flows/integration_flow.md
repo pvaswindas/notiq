@@ -15,6 +15,7 @@ This document explains integration points and routing between core logic and ext
 - Contract: `EventIngestionRequest`
 - Action: map event payload to legacy `ProcessEventUseCase`
 - Output: `{"status": "accepted"}` on success
+- Continuation: one Celery task per channel executes idempotency + rate-limit + provider send sequence
 
 ## Outbound Integrations
 ### Provider Senders
@@ -31,6 +32,11 @@ This document explains integration points and routing between core logic and ext
 - Primary flow: Postgres-backed queue semantics via `delivery_jobs` claim model.
 - Legacy flow: Celery + Redis broker/backend for event fan-out task execution.
 
+### Legacy Rate-Limit Dependencies
+- Resolver: `RateLimitResolver` selects group/provider/tenant/global config.
+- Config source: `InMemoryRateLimitConfigRepository` (seeded defaults).
+- Enforcement: `RedisRateLimiter` Lua-scripted atomic counter/expiry check.
+
 ## Internal Routing Logic
 1. Inbound adapter maps protocol data to use-case command/entity.
 2. Use case selects ports and orchestrates policy steps.
@@ -41,6 +47,7 @@ This document explains integration points and routing between core logic and ext
 - Database write conflict on idempotency key: interpreted as duplicate event-channel attempt.
 - Provider network failures: retried by job processing policy.
 - Legacy Celery task failure: task autoretry and idempotency key release on exception.
+- Legacy throttle deny: task requeues itself after releasing idempotency claim.
 
 ## Extension Guidance
 To add a new integration safely:
