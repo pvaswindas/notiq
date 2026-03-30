@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 
 
 class SendNotificationRequest(BaseModel):
+    """Inbound API contract for submitting a notification event."""
+
     workspace_id: str = Field(min_length=1)
     event_id: str = Field(min_length=1)
     event_name: str = Field(min_length=1)
@@ -12,5 +14,7 @@ class SendNotificationRequest(BaseModel):
 
 
 class SendNotificationResponse(BaseModel):
+    """Outbound API contract summarizing enqueue and dedupe results."""
+
     enqueued_jobs: int
     skipped_duplicates: int

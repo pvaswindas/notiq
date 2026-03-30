@@ -4,6 +4,8 @@ from typing import Any
 
 @dataclass(slots=True, frozen=True)
 class SendNotificationCommand:
+    """Input command used by the send-notification application use case."""
+
     workspace_id: str
     event_id: str
     event_name: str
