@@ -1,7 +1,5 @@
 from dataclasses import dataclass
 
-from src.bootstrap.settings import settings
-from src.bootstrap.workers.notification_worker import NotificationWorker
 from src.infrastructure.id_generator.uuid_id_generator import UUIDIdGenerator
 from src.infrastructure.persistence.postgres.channel_repository import PostgresChannelRepository
 from src.infrastructure.persistence.postgres.delivery_job_repository import PostgresDeliveryJobRepository
@@ -24,7 +22,6 @@ class Container:
 
     send_notification_use_case: SendNotificationUseCase
     process_delivery_job_use_case: ProcessDeliveryJobUseCase
-    notification_worker: NotificationWorker
 
 
 class ContainerFactory:
@@ -72,17 +69,7 @@ class ContainerFactory:
             delivery_job_repository=delivery_job_repository,
         )
 
-        notification_worker = NotificationWorker(
-            worker_id=settings.worker_id,
-            delivery_job_repository=delivery_job_repository,
-            process_delivery_job_use_case=process_delivery_job_use_case,
-            batch_size=settings.worker_batch_size,
-            poll_interval_seconds=settings.worker_poll_interval_seconds,
-            lease_seconds=settings.worker_lease_seconds,
-        )
-
         return Container(
             send_notification_use_case=send_notification_use_case,
             process_delivery_job_use_case=process_delivery_job_use_case,
-            notification_worker=notification_worker,
         )
