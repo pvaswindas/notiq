@@ -6,6 +6,8 @@ from src.modules.notifications.ports.delivery_job_repository_port import Deliver
 
 
 class NotificationWorker:
+    """Poll due delivery jobs and execute them via the processing use case."""
+
     def __init__(
         self,
         worker_id: str,
@@ -15,6 +17,8 @@ class NotificationWorker:
         poll_interval_seconds: float = 1.0,
         lease_seconds: int = 30,
     ) -> None:
+        """Initialize worker polling and processing dependencies."""
+
         self._worker_id = worker_id
         self._delivery_job_repository = delivery_job_repository
         self._process_delivery_job_use_case = process_delivery_job_use_case
@@ -24,6 +28,8 @@ class NotificationWorker:
         self._logger = logging.getLogger(__name__)
 
     async def process_batch(self) -> int:
+        """Claim due jobs, process each one, and return processed job count."""
+
         jobs = await self._delivery_job_repository.claim_due_jobs(
             worker_id=self._worker_id,
             limit=self._batch_size,
@@ -40,6 +46,8 @@ class NotificationWorker:
         return len(jobs)
 
     async def run_forever(self) -> None:
+        """Continuously process available jobs with a configured poll interval."""
+
         while True:
             await self.process_batch()
             await asyncio.sleep(self._poll_interval_seconds)
