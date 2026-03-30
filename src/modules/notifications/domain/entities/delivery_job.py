@@ -4,6 +4,8 @@ from enum import StrEnum
 
 
 class DeliveryJobStatus(StrEnum):
+    """Lifecycle states for a persisted delivery job."""
+
     PENDING = "PENDING"
     PROCESSING = "PROCESSING"
     SUCCESS = "SUCCESS"
@@ -12,6 +14,12 @@ class DeliveryJobStatus(StrEnum):
 
 @dataclass(slots=True, frozen=True)
 class DeliveryJob:
+    """Executable delivery unit created from an event-channel pairing.
+
+    The worker advances this entity through `PENDING -> PROCESSING -> SUCCESS`
+    or `FAILED` while maintaining retry and error metadata.
+    """
+
     job_id: str
     workspace_id: str
     channel_id: str
@@ -30,6 +38,8 @@ class DeliveryJob:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self) -> None:
+        """Validate retry invariants required for reliable job processing."""
+
         if self.retry_count < 0:
             raise ValueError("retry_count must be non-negative")
         if self.max_retries < 1:

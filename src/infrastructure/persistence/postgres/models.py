@@ -8,10 +8,14 @@ from src.infrastructure.db.base import Base
 
 
 def utc_now() -> datetime:
+    """Return current UTC timestamp for model defaults."""
+
     return datetime.now(timezone.utc)
 
 
 class WorkspaceModel(Base):
+    """ORM model for tenant workspace records."""
+
     __tablename__ = "workspaces"
 
     workspace_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -22,6 +26,8 @@ class WorkspaceModel(Base):
 
 
 class ProviderAccountModel(Base):
+    """ORM model for provider credential/account configuration."""
+
     __tablename__ = "provider_accounts"
 
     provider_account_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -40,6 +46,8 @@ class ProviderAccountModel(Base):
 
 
 class ChannelModel(Base):
+    """ORM model for channel routing definitions."""
+
     __tablename__ = "channels"
 
     channel_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -62,6 +70,8 @@ class ChannelModel(Base):
 
 
 class DeliveryJobModel(Base):
+    """ORM model for asynchronous delivery job lifecycle tracking."""
+
     __tablename__ = "delivery_jobs"
 
     job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -93,6 +103,8 @@ class DeliveryJobModel(Base):
 
 
 class IdempotencyKeyModel(Base):
+    """ORM model that stores claimed dedupe fingerprints."""
+
     __tablename__ = "idempotency_keys"
 
     dedupe_key: Mapped[str] = mapped_column(String(128), primary_key=True)
