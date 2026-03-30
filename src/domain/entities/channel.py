@@ -23,6 +23,7 @@ class Channel:
     id: str
     workspace_id: str
     provider: str
+    group: str | None = None
     config: dict[str, Any] = field(default_factory=dict)
     is_active: bool = True
 
