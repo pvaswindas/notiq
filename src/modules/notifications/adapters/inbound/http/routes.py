@@ -6,14 +6,22 @@ from src.modules.notifications.application.use_cases.send_notification_use_case 
 
 
 class NotificationRouterFactory:
+    """Create HTTP routes that translate API requests into use-case commands."""
+
     def __init__(self, send_notification_use_case: SendNotificationUseCase) -> None:
+        """Store send-notification use case dependency for route handlers."""
+
         self._send_notification_use_case = send_notification_use_case
 
     def build(self) -> APIRouter:
+        """Build and return router exposing notification API endpoints."""
+
         router = APIRouter(prefix="/notifications", tags=["notifications"])
 
         @router.post("/send", response_model=SendNotificationResponse)
         async def send_notification(request: SendNotificationRequest) -> SendNotificationResponse:
+            """Accept an event request and enqueue delivery jobs for matching channels."""
+
             command = SendNotificationCommand(
                 workspace_id=request.workspace_id,
                 event_id=request.event_id,
