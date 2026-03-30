@@ -7,10 +7,16 @@ from src.modules.notifications.ports.notification_sender_port import Notificatio
 
 
 class TelegramNotifier(NotificationSenderPort):
+    """Outbound adapter that sends delivery jobs through Telegram APIs."""
+
     def __init__(self) -> None:
+        """Initialize adapter logger used for delivery telemetry."""
+
         self._logger = logging.getLogger(__name__)
 
     async def send(self, job: DeliveryJob, provider_account: ProviderAccount) -> None:
+        """Send a job using Telegram provider credentials referenced by the account."""
+
         if provider_account.provider_key != "telegram":
             raise ValueError("telegram sender received non-telegram provider account")
 

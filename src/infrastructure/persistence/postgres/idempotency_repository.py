@@ -8,7 +8,11 @@ from src.modules.notifications.ports.idempotency_repository_port import Idempote
 
 
 class PostgresIdempotencyRepository(IdempotencyRepositoryPort):
+    """Postgres adapter for atomic idempotency-key claims."""
+
     async def claim(self, dedupe_key: str) -> bool:
+        """Insert dedupe key and return whether the claim succeeded."""
+
         async with AsyncSessionLocal() as session:
             model = IdempotencyKeyModel(dedupe_key=dedupe_key, created_at=datetime.now(timezone.utc))
             session.add(model)

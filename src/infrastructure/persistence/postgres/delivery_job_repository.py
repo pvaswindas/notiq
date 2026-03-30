@@ -9,7 +9,11 @@ from src.modules.notifications.ports.delivery_job_repository_port import Deliver
 
 
 class PostgresDeliveryJobRepository(DeliveryJobRepositoryPort):
+    """Postgres adapter for durable delivery-job lifecycle persistence."""
+
     async def save(self, job: DeliveryJob) -> None:
+        """Persist a new delivery job row."""
+
         async with AsyncSessionLocal() as session:
             model = DeliveryJobModel(
                 job_id=job.job_id,
@@ -34,6 +38,8 @@ class PostgresDeliveryJobRepository(DeliveryJobRepositoryPort):
             await session.commit()
 
     async def update(self, job: DeliveryJob) -> None:
+        """Persist updates for an existing delivery job row."""
+
         async with AsyncSessionLocal() as session:
             model = await session.get(DeliveryJobModel, job.job_id)
             if model is None:
@@ -51,6 +57,8 @@ class PostgresDeliveryJobRepository(DeliveryJobRepositoryPort):
             await session.commit()
 
     async def claim_due_jobs(self, worker_id: str, limit: int, lease_seconds: int) -> list[DeliveryJob]:
+        """Atomically claim due or expired-processing jobs for a worker lease."""
+
         now = datetime.now(timezone.utc)
         lease_until = now + timedelta(seconds=lease_seconds)
 
@@ -93,6 +101,8 @@ class PostgresDeliveryJobRepository(DeliveryJobRepositoryPort):
 
     @staticmethod
     def _to_entity(model: DeliveryJobModel) -> DeliveryJob:
+        """Convert ORM model into immutable domain `DeliveryJob` entity."""
+
         return DeliveryJob(
             job_id=model.job_id,
             workspace_id=model.workspace_id,

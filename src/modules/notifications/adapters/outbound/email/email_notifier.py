@@ -7,10 +7,16 @@ from src.modules.notifications.ports.notification_sender_port import Notificatio
 
 
 class EmailNotifier(NotificationSenderPort):
+    """Outbound adapter that sends delivery jobs to an email provider."""
+
     def __init__(self) -> None:
+        """Initialize adapter logger used for delivery telemetry."""
+
         self._logger = logging.getLogger(__name__)
 
     async def send(self, job: DeliveryJob, provider_account: ProviderAccount) -> None:
+        """Send a job using email provider credentials referenced by the account."""
+
         if provider_account.provider_key != "email":
             raise ValueError("email sender received non-email provider account")
 

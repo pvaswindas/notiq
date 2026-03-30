@@ -7,7 +7,11 @@ from src.modules.notifications.ports.workspace_repository_port import WorkspaceR
 
 
 class PostgresWorkspaceRepository(WorkspaceRepositoryPort):
+    """Postgres adapter for workspace tenant-state retrieval."""
+
     async def get_by_id(self, workspace_id: str) -> Workspace | None:
+        """Fetch a workspace by id from Postgres."""
+
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(WorkspaceModel).where(WorkspaceModel.workspace_id == workspace_id)

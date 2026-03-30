@@ -7,7 +7,11 @@ from src.modules.notifications.ports.channel_repository_port import ChannelRepos
 
 
 class PostgresChannelRepository(ChannelRepositoryPort):
+    """Postgres adapter for channel lookups used during routing."""
+
     async def list_active_by_workspace(self, workspace_id: str) -> list[Channel]:
+        """Return active channels for a workspace from the channels table."""
+
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(ChannelModel)
