@@ -19,6 +19,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """Create initial tables, constraints, and indexes for Notiq persistence."""
+
     op.create_table(
         "workspaces",
         sa.Column("workspace_id", sa.String(length=64), nullable=False),
@@ -100,6 +102,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop all schema objects created by the initial migration."""
+
     op.drop_table("idempotency_keys")
     op.drop_index("ix_delivery_jobs_workspace_status", table_name="delivery_jobs")
     op.drop_index("ix_delivery_jobs_processing_expires", table_name="delivery_jobs")
