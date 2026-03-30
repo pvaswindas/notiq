@@ -9,18 +9,30 @@ from src.modules.notifications.ports.sender_registry_port import SenderRegistryP
 
 
 class ProcessDeliveryJobUseCase:
+    """Execute a claimed delivery job and persist lifecycle state transitions."""
+
     def __init__(
         self,
         sender_registry: SenderRegistryPort,
         provider_account_repository: ProviderAccountRepositoryPort,
         delivery_job_repository: DeliveryJobRepositoryPort,
     ) -> None:
+        """Initialize dependencies for sender resolution, account lookup, and updates."""
+
         self._sender_registry = sender_registry
         self._provider_account_repository = provider_account_repository
         self._delivery_job_repository = delivery_job_repository
         self._logger = logging.getLogger(__name__)
 
     async def execute(self, job: DeliveryJob) -> None:
+        """Process one delivery job with retry classification and status persistence.
+
+        Flow:
+        - Load and validate provider account.
+        - Resolve sender by provider key and attempt delivery.
+        - Mark success, retry with exponential backoff, or fail permanently.
+        """
+
         try:
             if job.provider_account_id is None:
                 raise ValueError(f"job {job.job_id} has no provider account")
@@ -75,10 +87,14 @@ class ProcessDeliveryJobUseCase:
 
     @staticmethod
     def _is_transient_error(exc: Exception) -> bool:
+        """Return whether an exception is retryable by infrastructure policy."""
+
         return isinstance(exc, (TimeoutError, ConnectionError, OSError))
 
     @staticmethod
     def _truncate_error(error: str) -> str:
+        """Trim stored error text to fit persistence limits and log safety."""
+
         if len(error) <= 1024:
             return error
         return f"{error[:1021]}..."

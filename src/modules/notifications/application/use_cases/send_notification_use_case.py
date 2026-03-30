@@ -13,6 +13,8 @@ from src.modules.notifications.domain.services.idempotency_service import Idempo
 
 
 class SendNotificationUseCase:
+    """Orchestrate inbound event intake into persisted delivery jobs."""
+
     def __init__(
         self,
         workspace_repository: WorkspaceRepositoryPort,
@@ -24,6 +26,8 @@ class SendNotificationUseCase:
         idempotency_service: IdempotencyService,
         id_generator: IdGeneratorPort,
     ) -> None:
+        """Initialize all ports/services required for notification intake flow."""
+
         self._workspace_repository = workspace_repository
         self._channel_repository = channel_repository
         self._idempotency_repository = idempotency_repository
@@ -34,6 +38,14 @@ class SendNotificationUseCase:
         self._id_generator = id_generator
 
     async def execute(self, command: SendNotificationCommand) -> QueuedDeliveryResultDTO:
+        """Validate input, resolve channels/accounts, dedupe, and enqueue jobs.
+
+        Important constraints:
+        - Workspace must exist and be active.
+        - Idempotency is enforced per `(event, channel)` fingerprint.
+        - When `channel_ids` are provided, routing is restricted to that subset.
+        """
+
         if not command.workspace_id or not command.event_id or not command.event_name:
             raise ValueError("workspace_id, event_id, and event_name are required")
 

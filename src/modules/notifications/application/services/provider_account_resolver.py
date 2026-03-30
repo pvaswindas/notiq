@@ -4,10 +4,20 @@ from src.modules.notifications.ports.provider_account_repository_port import Pro
 
 
 class ProviderAccountResolver:
+    """Resolve the effective provider account for a channel delivery attempt."""
+
     def __init__(self, provider_account_repository: ProviderAccountRepositoryPort) -> None:
+        """Store provider account repository dependency used for lookup/fallback."""
+
         self._provider_account_repository = provider_account_repository
 
     async def resolve_for_channel(self, channel: Channel) -> ProviderAccount:
+        """Resolve account in this order: channel-specific, workspace default, system default.
+
+        Raises:
+        - ValueError: If no active account can be resolved for the channel.
+        """
+
         if channel.provider_account_id:
             account = await self._provider_account_repository.get_by_id(channel.provider_account_id)
             if account is None or not account.is_active:
