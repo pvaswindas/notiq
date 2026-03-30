@@ -12,6 +12,31 @@ from src.infrastructure.redis.redis_idempotency_store import RedisIdempotencySto
 
 @celery_app.task(name="notiq.send_notification", bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_jitter=True, max_retries=5)
 def send_notification_task(self: Any, event_payload: dict[str, Any], channel_payload: dict[str, Any]) -> None:
+    """Execute one legacy provider delivery task for an event-channel pair.
+
+    Purpose:
+    - Compatibility Celery task that performs idempotent provider delivery.
+
+    Args:
+        self: Celery task instance (unused directly, required by bind=True).
+        event_payload: Serialized event dictionary from enqueue step.
+        channel_payload: Serialized channel dictionary from enqueue step.
+
+    Returns:
+        None.
+
+    Internal flow:
+    - Rehydrate domain objects from payload dictionaries.
+    - Compute and claim Redis-backed idempotency key.
+    - Resolve provider implementation from provider factory.
+    - Execute async provider send inside task process.
+
+    Edge cases and constraints:
+    - Duplicate idempotency claims return early without provider call.
+    - On provider failure, idempotency key is released before raising so task
+      retry can re-attempt delivery.
+    """
+
     event = Event(**event_payload)
     channel = Channel(**channel_payload)
     idempotency_key = generate_idempotency_key(event=event, channel=channel)
