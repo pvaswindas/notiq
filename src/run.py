@@ -7,6 +7,8 @@ from src.worker_main import main as worker_main
 
 
 def run() -> None:
+    """Start API or worker runtime based on `APP_MODE` configuration."""
+
     if settings.app_mode == "worker":
         asyncio.run(worker_main())
         return

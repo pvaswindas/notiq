@@ -5,7 +5,17 @@ from src.modules.notifications.adapters.inbound.http.routes import NotificationR
 
 
 class ApplicationFactory:
+    """Build the FastAPI application with all notification routes wired in."""
+
     def create(self) -> FastAPI:
+        """Create and return the API application instance.
+
+        Flow:
+        - Builds the dependency container.
+        - Creates the FastAPI app shell.
+        - Registers inbound notification routes backed by use cases.
+        """
+
         container = ContainerFactory().build()
         app = FastAPI(title="Notiq")
 

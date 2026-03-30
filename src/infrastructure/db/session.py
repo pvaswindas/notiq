@@ -8,5 +8,7 @@ AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_
 
 
 async def get_session() -> AsyncSession:
+    """Yield an async database session for dependency-injection scenarios."""
+
     async with AsyncSessionLocal() as session:
         yield session

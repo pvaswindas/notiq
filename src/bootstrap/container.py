@@ -20,13 +20,24 @@ from src.modules.notifications.domain.services.idempotency_service import Idempo
 
 @dataclass(slots=True)
 class Container:
+    """Aggregate root for runtime dependencies used by API and worker entrypoints."""
+
     send_notification_use_case: SendNotificationUseCase
     process_delivery_job_use_case: ProcessDeliveryJobUseCase
     notification_worker: NotificationWorker
 
 
 class ContainerFactory:
+    """Compose concrete adapters and use cases for the running process."""
+
     def build(self) -> Container:
+        """Build and return a fully wired container.
+
+        This is the composition root for the notifications module. It binds
+        infrastructure adapters to application ports and returns ready-to-use
+        use cases plus worker orchestration components.
+        """
+
         workspace_repository = PostgresWorkspaceRepository()
         channel_repository = PostgresChannelRepository()
         provider_account_repository = PostgresProviderAccountRepository()
