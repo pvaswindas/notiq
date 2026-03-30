@@ -19,6 +19,16 @@ from src.ports.rate_limiter import RateLimiterPort
 
 @dataclass(slots=True)
 class SendNotificationTaskDependencies:
+    """Dependency bundle for legacy Celery notification delivery task.
+
+    Purpose:
+    - Group compatibility task collaborators behind explicit interfaces.
+
+    Architectural role:
+    - Local composition structure that keeps task function focused on flow
+      orchestration rather than object construction.
+    """
+
     idempotency_store: IdempotencyStorePort
     rate_limit_resolver: RateLimitResolver
     rate_limiter: RateLimiterPort
@@ -26,6 +36,16 @@ class SendNotificationTaskDependencies:
 
 
 def _build_dependencies() -> SendNotificationTaskDependencies:
+    """Construct default dependencies for the legacy task runtime.
+
+    Returns:
+        SendNotificationTaskDependencies: Ready-to-use dependency set.
+
+    Constraints:
+    - Uses in-memory rate-limit config source for policy lookup.
+    - Uses Redis-backed idempotency and rate-limiter adapters.
+    """
+
     config_repository = InMemoryRateLimitConfigRepository()
     return SendNotificationTaskDependencies(
         idempotency_store=RedisIdempotencyStore(),
@@ -56,11 +76,14 @@ def send_notification_task(self: Any, event_payload: dict[str, Any], channel_pay
     Internal flow:
     - Rehydrate domain objects from payload dictionaries.
     - Compute and claim Redis-backed idempotency key.
+    - Resolve scoped rate-limit policy and evaluate allow/deny.
+    - Release idempotency key and requeue shortly when throttled.
     - Resolve provider implementation from provider factory.
     - Execute async provider send inside task process.
 
     Edge cases and constraints:
     - Duplicate idempotency claims return early without provider call.
+    - Throttled executions are retried after a short countdown.
     - On provider failure, idempotency key is released before raising so task
       retry can re-attempt delivery.
     """
