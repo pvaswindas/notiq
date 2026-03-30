@@ -8,3 +8,7 @@ class EventQueuePort(ABC):
     @abstractmethod
     async def enqueue(self, event: Event, channel: Channel) -> None:
         ...
+
+    @abstractmethod
+    async def dequeue(self) -> tuple[Event, Channel]:
+        ...
