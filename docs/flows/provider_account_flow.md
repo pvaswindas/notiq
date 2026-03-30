@@ -1,41 +1,21 @@
-# Provider Account Resolution Flow
+# Provider Account Flow
 
-## Purpose
-Provider account resolution determines which credentials are used for each channel delivery job.
+## Scope
+Provider account resolution is part of the primary intake path and is executed by `ProviderAccountResolver.resolve_for_channel`.
 
 ## Resolution Order
-For each channel, `ProviderAccountResolver.resolve_for_channel` executes:
-1. Channel-specific account
-- If `channel.provider_account_id` is set, fetch that exact account.
-- If missing or inactive, raise error.
-2. Workspace default account
-- Query default account for `(provider_key, workspace_id)`.
-- Use it only when active.
-3. System default account
-- Query default account for `(provider_key, workspace_id=None)`.
-- Use it only when active.
-4. Fail when no active account found
-- Raises `ValueError` and prevents job creation/processing for that path.
+1. Explicit channel account (`channel.provider_account_id`).
+2. Workspace default account for `provider_key`.
+3. System default account (`workspace_id = NULL`) for `provider_key`.
 
-## Default vs Custom Logic
-### Custom (explicit channel account)
-- Strongest priority.
-- Gives fine-grained credential control per channel.
+## Important Behavior
+- If explicit channel account is configured but inactive/missing, resolution fails immediately.
+- Defaults are only considered when explicit account is not configured.
+- Inactive accounts are never selected.
 
-### Default (workspace)
-- Shared default account within one workspace/provider.
-- Useful for teams managing many channels under same credentials.
+## Why This Rule Exists
+Fail-fast behavior on explicit account misconfiguration prevents accidental credential drift and unexpected fallback routing.
 
-### Default (system/global)
-- Last-resort fallback for provider-wide defaults.
-- Useful for bootstrap or shared platform account behavior.
-
-## Failure and Fallback Behavior
-- No fallback from explicit account to defaults when explicit ID is invalid/inactive. This is intentional to surface configuration mistakes early.
-- Fallback is only used when channel does not specify an explicit account.
-- Inactive accounts are treated as unavailable.
-
-## Operational Guidance
-- Use explicit account when channel-level credential isolation is required.
-- Use workspace default for standard tenant setup.
-- Reserve system defaults for controlled platform-wide fallback use.
+## Related Docs
+- [core_flow.md](/home/aswin/code/unifiedbits/notiq/docs/flows/core_flow.md)
+- [integration_flow.md](/home/aswin/code/unifiedbits/notiq/docs/flows/integration_flow.md)

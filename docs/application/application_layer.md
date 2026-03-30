@@ -1,39 +1,60 @@
 # Application Layer
 
-## Use Cases
+## Scope
+The primary application layer lives in `src/modules/notifications/application` and orchestrates notification intake and job processing.
+
+A smaller legacy use case exists in `src/application/use_cases/process_event_use_case.py` for compatibility endpoint `/events`.
+
+## Primary Use Cases
 
 ### SendNotificationUseCase
-Purpose: convert inbound event command into persisted delivery jobs.
+Purpose:
+- Convert inbound notification request into persisted, deduplicated delivery jobs.
 
-Flow responsibilities:
-1. Validate required identifiers.
-2. Validate workspace existence/active state.
-3. Build `Event` entity.
-4. Load active channels and optionally filter by `channel_ids`.
-5. Resolve provider account per channel.
-6. Generate channel dedupe key and claim idempotency.
-7. Build `DeliveryJob` and persist.
-8. Return enqueue summary DTO.
+Key orchestration decisions:
+1. Validate required command identity fields.
+2. Validate workspace existence and active status.
+3. Load active channels and apply optional channel filter.
+4. Resolve provider account per channel.
+5. Generate and claim channel dedupe key.
+6. Persist delivery job for successful claims.
+7. Return enqueue summary.
+
+Important constraints:
+- No direct infrastructure or SDK logic.
+- Idempotency is channel-level.
+- Explicit misconfigured account fails fast for that channel path.
 
 ### ProcessDeliveryJobUseCase
-Purpose: execute one claimed job and persist resulting lifecycle state.
+Purpose:
+- Execute a claimed job and persist lifecycle transitions.
 
-Flow responsibilities:
+Key orchestration decisions:
 1. Validate provider account availability.
-2. Resolve sender via registry.
-3. Execute sender.
-4. Update status to `SUCCESS` on success.
-5. On failure: retry with backoff when transient and budget remains.
-6. Otherwise mark `FAILED`.
+2. Resolve sender by provider key.
+3. Execute send attempt.
+4. Classify error as transient or permanent.
+5. Persist `SUCCESS`, retryable `PENDING`, or terminal `FAILED`.
 
-## Processor Logic
-- Batch claim and execution is handled by `NotificationWorker`.
-- Worker does orchestration loop only; business transition policy remains in use case.
+Important constraints:
+- Must clear lease ownership fields on completion path.
+- Retry policy remains centralized in this use case.
 
-## Routing Decisions
-- Channel routing: all active channels unless `channel_ids` restricts.
-- Provider routing: sender resolved by `provider_key`.
-- Account routing: explicit channel account -> workspace default -> global default.
+## Application Services
 
-## Why application layer is critical
-It is the boundary where business workflows remain stable while adapters and infrastructure evolve independently.
+### ProviderAccountResolver
+- Encapsulates account fallback policy.
+- Prevents account-selection logic from leaking into use cases.
+
+### SenderRegistry
+- Maps provider key to outbound sender implementation.
+- Centralizes unsupported-provider handling.
+
+### EventMessageMapper
+- Converts event/channel context into deterministic message text.
+- Keeps formatting logic out of use case orchestration.
+
+## Legacy Application Flow
+`ProcessEventUseCase` in `src/application/use_cases` loads active channels and enqueues Celery tasks.
+
+Use this flow only for compatibility behavior; new orchestration should be added to modular notifications application layer.

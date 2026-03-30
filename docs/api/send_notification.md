@@ -1,14 +1,16 @@
 # Send Notification API
 
-## Endpoint
+## 1. Endpoint
 - Method: `POST`
 - Path: `/notifications/send`
+- Handler: `NotificationRouterFactory.send_notification`
 
-## Headers
+## 2. Headers
 - `Content-Type: application/json` (required)
-- `Authorization`: not currently required by implementation (add at gateway/app layer when auth is introduced)
+- `Authorization` is not enforced by current implementation.
 
-## Request Body
+## 3. Request Payload
+
 ```json
 {
   "workspace_id": "workspace-1",
@@ -22,15 +24,15 @@
 }
 ```
 
-### Fields
-- `workspace_id` (`string`, required): Tenant identifier; must reference an active workspace.
-- `event_id` (`string`, required): Event identity for dedupe fingerprinting.
-- `event_name` (`string`, required): Logical event type.
-- `payload` (`object`, optional, default `{}`): Event payload mapped into outgoing message text.
-- `channel_ids` (`string[]`, optional): Restricts routing to selected channels. If omitted, all active workspace channels are considered.
+### Field-by-field explanation
+- `workspace_id` (`string`, required): Tenant identifier used for workspace validation and channel lookup.
+- `event_id` (`string`, required): Stable event identifier used as part of idempotency fingerprinting.
+- `event_name` (`string`, required): Business event type used in message mapping.
+- `payload` (`object`, optional, default `{}`): Arbitrary event body passed to message mapping.
+- `channel_ids` (`array<string> | null`, optional): Restricts fan-out to selected active channels.
 
-## Success Response
-Status: `200 OK`
+## 4. Response
+### Success (`200 OK`)
 
 ```json
 {
@@ -39,33 +41,26 @@ Status: `200 OK`
 }
 ```
 
-### Response fields
-- `enqueued_jobs`: Number of new delivery jobs persisted.
-- `skipped_duplicates`: Number of channels skipped due to existing dedupe key.
+Fields:
+- `enqueued_jobs`: Number of newly persisted delivery jobs.
+- `skipped_duplicates`: Number of channel routes skipped because idempotency key was already claimed.
 
-## Error Responses
-### Validation error (FastAPI/Pydantic)
-Status: `422 Unprocessable Entity`
+### Error responses
+- `422 Unprocessable Entity`: Request validation failed at FastAPI/Pydantic boundary.
+- `500 Internal Server Error`: Use-case/runtime exception (for example missing workspace, inactive workspace, missing provider account).
 
-### Business validation errors from use case
-Status: `500 Internal Server Error` by default in current implementation, with messages such as:
-- `workspace not found: <workspace_id>`
-- `workspace is inactive: <workspace_id>`
-- `missing default provider account for provider=<provider_key>`
+## 5. Internal Processing Flow
+1. Validate payload schema.
+2. Convert request to `SendNotificationCommand`.
+3. Validate required identifiers.
+4. Load workspace and verify active state.
+5. Load active channels and apply optional `channel_ids` filter.
+6. Resolve provider account per channel (explicit -> workspace default -> system default).
+7. Generate idempotency key per channel and attempt atomic claim.
+8. Skip duplicates, persist new `DeliveryJob` records for successful claims.
+9. Return enqueue summary.
 
-Note: mapping domain errors to structured `4xx` responses is a recommended improvement.
-
-## Flow Guidance (What Happens After Call)
-1. Request is mapped into `SendNotificationCommand`.
-2. Workspace is validated.
-3. Active channels are loaded and optionally filtered by `channel_ids`.
-4. Provider account is resolved per channel (explicit -> workspace default -> system default).
-5. Dedupe key is claimed for each channel.
-6. Delivery jobs are saved in Postgres as `PENDING`.
-7. Background worker eventually delivers jobs and updates status.
-
-## What Client Should Do Next
-- Treat `200` as "accepted and queued", not immediate provider delivery success.
-- Store `event_id` deterministically if client-side retries are possible.
-- Use `channel_ids` when targeting specific channels (for selective fan-out).
-- If retrying the same event intentionally, reuse identical `event_id` and payload to leverage idempotency behavior.
+## 6. What To Do Next
+- Treat success as queue acceptance, not provider delivery confirmation.
+- Monitor worker execution path for eventual status transitions (`SUCCESS`/`FAILED`).
+- Reuse the same `event_id` and payload on client retries to preserve idempotency behavior.
