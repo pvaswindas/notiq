@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from src.application.use_cases.process_event_use_case import ProcessEventUseCase
-from src.infrastructure.queue.in_memory_routing_event_queue import InMemoryEventQueue
+from src.infrastructure.queue.in_memory_queue import InMemoryEventQueue
 from src.infrastructure.repositories.in_memory_channel_repository import InMemoryChannelRepository
 
 
