@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     worker_poll_interval_seconds: float = Field(default=1.0, alias="WORKER_POLL_INTERVAL_SECONDS")
     worker_lease_seconds: int = Field(default=30, alias="WORKER_LEASE_SECONDS")
     max_events_per_minute: int = Field(default=120, alias="MAX_EVENTS_PER_MINUTE")
+    idempotency_ttl_seconds: int = Field(default=3600, alias="IDEMPOTENCY_TTL_SECONDS")
 
 
 settings = Settings()
