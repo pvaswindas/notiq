@@ -1,17 +1,16 @@
-import asyncio
-
 import uvicorn
 
 from src.bootstrap.settings import settings
-from src.worker_main import main as worker_main
 
 
 def run() -> None:
-    """Start API or worker runtime based on `APP_MODE` configuration."""
+    """Start API runtime."""
 
     if settings.app_mode == "worker":
-        asyncio.run(worker_main())
-        return
+        raise RuntimeError(
+            "APP_MODE=worker is no longer supported. "
+            "Run Celery with: celery -A src.infrastructure.celery_app.celery_app worker --loglevel=info"
+        )
 
     uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=False)
 

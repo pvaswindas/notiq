@@ -1,15 +1,11 @@
 import asyncio
-import logging
-
-from src.bootstrap.container import ContainerFactory
-
 
 async def main() -> None:
-    """Bootstrap dependencies and run the notification worker loop forever."""
-
-    logging.basicConfig(level=logging.INFO)
-    container = ContainerFactory().build()
-    await container.notification_worker.run_forever()
+    """Legacy entrypoint retained for compatibility."""
+    raise RuntimeError(
+        "worker_main is deprecated. Run Celery with: "
+        "celery -A src.infrastructure.celery_app.celery_app worker --loglevel=info"
+    )
 
 
 if __name__ == "__main__":
