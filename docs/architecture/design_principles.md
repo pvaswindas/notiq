@@ -1,66 +1,60 @@
 # Design Principles
 
-## Multi-Tenant Design
+## Reliability Over Immediate Delivery
 ### Why
-Different products/teams must share the platform safely without cross-tenant leakage.
+Provider APIs are inherently unreliable and should not control API response latency.
 
-### How implemented
-- `workspace_id` scopes channels, jobs, and runtime processing context.
-- Workspace validation is performed before job creation.
-- Worker logs and job updates carry workspace context for traceability.
+### How
+- API path persists work as delivery jobs.
+- Worker execution handles retries and terminal failure transitions.
 
-### Guardrails
-- Never create a delivery job without `workspace_id`.
-- All new persistence indexes/queries must preserve workspace isolation where relevant.
+### Constraint
+`200 OK` means "accepted for processing", not "delivered".
 
-## Provider Abstraction
+## Deterministic Idempotency
 ### Why
-Provider SDKs evolve and each provider has different APIs/error behavior.
+Upstream callers retry requests; duplicate sends must be prevented per destination.
 
-### How implemented
-- `NotificationSenderPort` defines a common `send(job, provider_account)` contract.
-- `SenderRegistry` resolves concrete sender by `provider_key`.
-- Outbound adapters (`TelegramNotifier`, `EmailNotifier`) hide provider-specific details.
+### How
+- Event fingerprint: deterministic hash of event context.
+- Channel fingerprint: deterministic hash of `(event_fingerprint, channel_id)`.
+- Atomic claim in `idempotency_keys` table blocks duplicate job creation.
 
-### Guardrails
-- Keep provider-specific logic out of use cases.
-- New provider support should not require changing domain entities.
+### Constraint
+Payload canonicalization and fingerprint inputs must remain stable across deployments.
 
-## Queue-Based Processing (Durable Job Table Pattern)
+## Tenant Isolation
 ### Why
-API latency should stay stable even when providers are slow/unavailable.
+Workspaces must never leak channels, credentials, or job processing context across tenants.
 
-### How implemented
-- API use case persists `DeliveryJob` records with `PENDING` status.
-- Worker claims due jobs using DB locking and lease fields.
-- Delivery execution happens asynchronously in worker process.
+### How
+- Workspace-scoped queries for channel resolution.
+- Workspace-bound job and provider-account relationships.
+- Workspace context carried through job execution and logs.
 
-### Guardrails
-- API must not call provider SDKs directly.
-- Worker claim logic must remain atomic and lease-aware.
+### Constraint
+All new routing/persistence features must preserve workspace boundaries by default.
 
-## Idempotency
+## Replaceable Integrations
 ### Why
-External callers or upstream systems may retry the same event.
+Provider and storage technology choices evolve over time.
 
-### How implemented
-- Event fingerprint generated from deterministic event attributes + canonical payload.
-- Channel fingerprint derived from `(event_fingerprint, channel_id)`.
-- `idempotency_keys` claim prevents duplicate job creation per channel.
+### How
+- Use cases depend on ports.
+- Concrete adapters are selected in container wiring.
+- Domain entities remain persistence and framework agnostic.
 
-### Guardrails
-- Do not remove/relax unique dedupe key constraints.
-- Payload canonicalization must remain deterministic.
+### Constraint
+Integration changes should be achievable without modifying domain policy code.
 
-## Fault Tolerance
+## Explicit Failure Semantics
 ### Why
-Provider/network failures are expected in distributed systems.
+Operational teams need predictable lifecycle behavior under failure.
 
-### How implemented
-- Worker classifies transient errors (`TimeoutError`, `ConnectionError`, `OSError`).
-- Exponential backoff: retry delay = `2 ** retry_count` seconds.
-- Final failure transitions job to `FAILED` with bounded error text.
+### How
+- Status model: `PENDING`, `PROCESSING`, `SUCCESS`, `FAILED`.
+- Transient errors retry with exponential backoff.
+- Permanent errors move to terminal failure state with captured error context.
 
-### Guardrails
-- Preserve status transitions (`PENDING`, `PROCESSING`, `SUCCESS`, `FAILED`).
-- Always release processing lease fields when finishing a job state update.
+### Constraint
+Any new status or retry policy must include migration and documentation updates.

@@ -1,27 +1,44 @@
 # Coding Guidelines
 
-## DOs
+## Core Rules
 - Keep domain entities immutable and framework-agnostic.
-- Put workflow orchestration in use cases.
-- Depend on ports from application logic; inject adapters in bootstrap.
-- Preserve idempotency behavior for all intake paths.
-- Keep worker state transitions explicit and auditable.
-- Add docstrings to all classes/functions.
+- Keep application use cases focused on orchestration and decision order.
+- Depend on ports in use cases; instantiate adapters only in bootstrap.
+- Keep idempotency behavior deterministic and explicit.
+- Document every architectural behavior change in `docs/` in the same PR.
 
-## DON'Ts
-- Do not import FastAPI/SQLAlchemy/provider SDKs into domain.
-- Do not call provider adapters from HTTP route handlers.
-- Do not bypass repository ports from use cases.
-- Do not change delivery status semantics casually.
-- Do not store provider secrets directly in domain models.
+## Layer DO and DON'T
+### Domain
+DO:
+- Encode invariants and domain language.
 
-## Architecture Rules
-1. Dependency flow must remain inward to domain.
-2. New integrations should be adapter + wiring changes first.
-3. Any cross-layer shortcut must be treated as architecture debt and documented.
-4. Business validation errors should be normalized at API boundary (future improvement).
+DON'T:
+- Import framework, ORM, or SDK packages.
 
-## Quality Rules
-- Keep changes small and layered.
-- Prefer deterministic mapping and hashing for idempotency-sensitive code.
-- Preserve backward-compatible API contracts unless versioning is introduced.
+### Application
+DO:
+- Coordinate domain + ports.
+
+DON'T:
+- Implement SQL, HTTP handlers, or provider SDK calls.
+
+### Adapters/Infrastructure
+DO:
+- Implement protocol and I/O details.
+
+DON'T:
+- Recreate business policy branching from use cases.
+
+## Documentation Expectations
+- Class docstrings must include purpose, responsibilities, architectural role, and key constraints.
+- Function/method docstrings must include behavior, parameters, return value, flow notes, and edge cases.
+- API docs must match real request/response behavior.
+- Flow docs must explain success and failure branches.
+
+## Testing and Validation Expectations
+- Validate syntax (`python3 -m compileall -q src`).
+- Validate migrations and schema alignment when persistence changes.
+- Validate endpoint behavior with smoke calls for both ingestion endpoints.
+
+## Compatibility Guidance
+Legacy `src/application` / `src/domain` flow is maintained for compatibility. New primary features should be built in `src/modules/notifications` unless compatibility constraints require otherwise.
