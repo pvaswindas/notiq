@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.adapters.http.dependencies.auth import AuthContext, require_auth
+from src.application.services.audit_logger import AuditLogger
 from src.application.services.auth_service import AuthService
+from src.infrastructure.database.repositories.postgres_audit_log_repository import PostgresAuditLogRepository
 from src.infrastructure.database.repositories.postgres_api_key_repository import PostgresApiKeyRepository
 from src.infrastructure.database.repositories.postgres_workspace_repository import PostgresWorkspaceRepository
 
@@ -59,6 +61,7 @@ class ApiKeyControllerFactory:
 
         self._api_key_repository = PostgresApiKeyRepository()
         self._workspace_repository = PostgresWorkspaceRepository()
+        self._audit_logger = AuditLogger(audit_log_repository=PostgresAuditLogRepository())
         self._auth_service = AuthService(api_key_repository=self._api_key_repository)
 
     def build(self) -> APIRouter:
@@ -105,7 +108,25 @@ class ApiKeyControllerFactory:
             if not name:
                 raise HTTPException(status_code=400, detail="name is required")
 
-            await self._api_key_repository.create(workspace_id=workspace_id, key_hash=key_hash, name=name)
+            created = await self._api_key_repository.create(workspace_id=workspace_id, key_hash=key_hash, name=name)
+            await self._audit_logger.log(
+                actor_id=None,
+                action="api_key.create",
+                resource="api_key",
+                resource_id=created.id,
+                before=None,
+                after={
+                    "id": created.id,
+                    "workspace_id": created.workspace_id,
+                    "name": created.name,
+                    "is_active": created.is_active,
+                },
+                metadata={
+                    "source": "api_key_controller",
+                    "workspace_id": auth.workspace_id,
+                    "auth_api_key_id": auth.api_key_id,
+                },
+            )
             return CreateApiKeyResponse(api_key=raw_api_key, name=name)
 
         @router.get("/workspaces/{workspace_id}/api-keys", response_model=list[ApiKeyResponse])
@@ -169,9 +190,34 @@ class ApiKeyControllerFactory:
             if api_key.workspace_id != auth.workspace_id:
                 raise HTTPException(status_code=403, detail="workspace access denied")
 
+            before_state = {
+                "id": api_key.id,
+                "workspace_id": api_key.workspace_id,
+                "name": api_key.name,
+                "is_active": api_key.is_active,
+            }
             disabled = await self._api_key_repository.disable(api_key_id)
             if disabled is None:
                 raise HTTPException(status_code=404, detail="api key not found")
+
+            await self._audit_logger.log(
+                actor_id=None,
+                action="api_key.revoke",
+                resource="api_key",
+                resource_id=disabled.id,
+                before=before_state,
+                after={
+                    "id": disabled.id,
+                    "workspace_id": disabled.workspace_id,
+                    "name": disabled.name,
+                    "is_active": disabled.is_active,
+                },
+                metadata={
+                    "source": "api_key_controller",
+                    "workspace_id": auth.workspace_id,
+                    "auth_api_key_id": auth.api_key_id,
+                },
+            )
 
             return DisableApiKeyResponse(id=disabled.id, is_active=disabled.is_active)
 

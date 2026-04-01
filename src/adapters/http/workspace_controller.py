@@ -95,7 +95,11 @@ class WorkspaceControllerFactory:
 
             try:
                 workspace = await self._create_workspace_use_case.execute(
-                    CreateWorkspaceInput(name=request.name)
+                    CreateWorkspaceInput(
+                        name=request.name,
+                        actor_id=None,
+                        audit_metadata={"source": "workspace_api"},
+                    )
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc

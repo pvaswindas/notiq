@@ -1,4 +1,5 @@
 from typing import Annotated
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,10 +13,16 @@ from src.adapters.http.dependencies.admin_auth import (
 from src.application.admin_use_cases.assign_role import AssignRoleInput, AssignRoleUseCase
 from src.application.admin_use_cases.create_admin import CreateAdminInput, CreateAdminUseCase
 from src.application.admin_use_cases.login_admin import LoginAdminInput, LoginAdminUseCase
+from src.application.services.audit_logger import AuditLogger
 from src.application.services.auth_service import AdminAuthService
+from src.application.use_cases.disable_workspace import DisableWorkspaceInput, DisableWorkspaceUseCase
+from src.domain.rate_limit.entities import RateLimitConfig
+from src.infrastructure.database.repositories.postgres_audit_log_repository import PostgresAuditLogRepository
 from src.infrastructure.database.repositories.postgres_admin_repository import PostgresAdminRepository
 from src.infrastructure.database.repositories.postgres_permission_repository import PostgresPermissionRepository
+from src.infrastructure.database.repositories.postgres_rate_limit_config_repository import PostgresRateLimitConfigRepository
 from src.infrastructure.database.repositories.postgres_role_repository import PostgresRoleRepository
+from src.infrastructure.database.repositories.postgres_workspace_repository import PostgresWorkspaceRepository
 
 
 class LoginRequest(BaseModel):
@@ -137,6 +144,46 @@ class AssignPermissionRequest(BaseModel):
     permission_id: str = Field(min_length=1)
 
 
+class DisableWorkspaceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    is_active: bool
+    created_at: str
+
+
+class CreateRateLimitConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str | None = None
+    scope: str = Field(min_length=1, max_length=16)
+    key: str = Field(min_length=1, max_length=128)
+    limit: int = Field(gt=0)
+    window_seconds: int = Field(gt=0)
+
+
+class UpdateRateLimitConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: str | None = None
+    scope: str = Field(min_length=1, max_length=16)
+    key: str = Field(min_length=1, max_length=128)
+    limit: int = Field(gt=0)
+    window_seconds: int = Field(gt=0)
+
+
+class RateLimitConfigResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    workspace_id: str | None
+    scope: str
+    key: str
+    limit: int
+    window_seconds: int
+
+
 class AdminControllerFactory:
     """Compose admin authentication and RBAC HTTP endpoints.
 
@@ -157,6 +204,10 @@ class AdminControllerFactory:
         self._admin_repository = PostgresAdminRepository()
         self._role_repository = PostgresRoleRepository()
         self._permission_repository = PostgresPermissionRepository()
+        self._workspace_repository = PostgresWorkspaceRepository()
+        self._rate_limit_config_repository = PostgresRateLimitConfigRepository()
+        self._audit_log_repository = PostgresAuditLogRepository()
+        self._audit_logger = AuditLogger(audit_log_repository=self._audit_log_repository)
 
         self._admin_auth_service = AdminAuthService(
             admin_repository=self._admin_repository,
@@ -166,11 +217,17 @@ class AdminControllerFactory:
             admin_repository=self._admin_repository,
             role_repository=self._role_repository,
             auth_service=self._admin_auth_service,
+            audit_logger=self._audit_logger,
         )
         self._login_admin_use_case = LoginAdminUseCase(auth_service=self._admin_auth_service)
         self._assign_role_use_case = AssignRoleUseCase(
             admin_repository=self._admin_repository,
             role_repository=self._role_repository,
+            audit_logger=self._audit_logger,
+        )
+        self._disable_workspace_use_case = DisableWorkspaceUseCase(
+            workspace_repository=self._workspace_repository,
+            audit_logger=self._audit_logger,
         )
 
     def build(self) -> APIRouter:
@@ -182,6 +239,12 @@ class AdminControllerFactory:
         """
 
         router = APIRouter(prefix="/admin", tags=["admin"])
+
+        def _normalize_scope(scope_value: str) -> str:
+            normalized = scope_value.strip().lower()
+            if normalized not in {"group", "provider", "tenant", "global"}:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid rate limit scope")
+            return normalized
 
         @router.post("/auth/login", response_model=LoginResponse)
         async def login(payload: LoginRequest) -> LoginResponse:
@@ -244,9 +307,11 @@ class AdminControllerFactory:
             "/admins",
             response_model=AdminResponse,
             status_code=status.HTTP_201_CREATED,
-            dependencies=[Depends(require_permission("manage_admins"))],
         )
-        async def create_admin(payload: CreateAdminRequest) -> AdminResponse:
+        async def create_admin(
+            payload: CreateAdminRequest,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_admins"))],
+        ) -> AdminResponse:
             """Create a new admin and optionally assign initial roles.
 
             Args:
@@ -267,6 +332,7 @@ class AdminControllerFactory:
                         email=payload.email,
                         password=payload.password,
                         role_ids=tuple(payload.role_ids),
+                        actor_id=auth.admin_id,
                     )
                 )
             except IntegrityError as exc:
@@ -317,9 +383,12 @@ class AdminControllerFactory:
         @router.post(
             "/admins/{admin_id}/roles",
             status_code=status.HTTP_204_NO_CONTENT,
-            dependencies=[Depends(require_permission("manage_admins"))],
         )
-        async def assign_role(admin_id: str, payload: AssignRoleRequest) -> None:
+        async def assign_role(
+            admin_id: str,
+            payload: AssignRoleRequest,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_admins"))],
+        ) -> None:
             """Assign a role to an admin.
 
             Args:
@@ -333,14 +402,22 @@ class AdminControllerFactory:
             - Unknown admin/role ids map to `404`.
             """
 
-            await self._assign_role_use_case.execute(AssignRoleInput(admin_id=admin_id, role_id=payload.role_id))
+            await self._assign_role_use_case.execute(
+                AssignRoleInput(
+                    admin_id=admin_id,
+                    role_id=payload.role_id,
+                    actor_id=auth.admin_id,
+                )
+            )
 
         @router.patch(
             "/admins/{admin_id}/disable",
             response_model=AdminResponse,
-            dependencies=[Depends(require_permission("manage_admins"))],
         )
-        async def disable_admin(admin_id: str) -> AdminResponse:
+        async def disable_admin(
+            admin_id: str,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_admins"))],
+        ) -> AdminResponse:
             """Disable an admin account and return the updated representation.
 
             Args:
@@ -353,9 +430,31 @@ class AdminControllerFactory:
             - Missing admin returns `404`.
             """
 
+            before_admin = await self._admin_repository.get_by_id(admin_id)
+            if before_admin is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="admin not found")
             admin = await self._admin_repository.set_active(admin_id, False)
             if admin is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="admin not found")
+
+            await self._audit_logger.log(
+                actor_id=auth.admin_id,
+                action="admin.disable",
+                resource="admin",
+                resource_id=admin.id,
+                before={
+                    "id": before_admin.id,
+                    "name": before_admin.name,
+                    "email": before_admin.email,
+                    "is_active": before_admin.is_active,
+                },
+                after={
+                    "id": admin.id,
+                    "name": admin.name,
+                    "email": admin.email,
+                    "is_active": admin.is_active,
+                },
+            )
 
             roles = await self._role_repository.list_by_admin(admin.id)
             return AdminResponse(
@@ -371,9 +470,11 @@ class AdminControllerFactory:
             "/roles",
             response_model=RoleResponse,
             status_code=status.HTTP_201_CREATED,
-            dependencies=[Depends(require_permission("manage_roles"))],
         )
-        async def create_role(payload: RoleRequest) -> RoleResponse:
+        async def create_role(
+            payload: RoleRequest,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_roles"))],
+        ) -> RoleResponse:
             """Create a new RBAC role.
 
             Args:
@@ -398,6 +499,15 @@ class AdminControllerFactory:
                 role = await self._role_repository.create(name=name)
             except IntegrityError as exc:
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="role already exists") from exc
+
+            await self._audit_logger.log(
+                actor_id=auth.admin_id,
+                action="role.create",
+                resource="role",
+                resource_id=role.id,
+                before=None,
+                after={"id": role.id, "name": role.name},
+            )
             return RoleResponse(id=role.id, name=role.name, created_at=role.created_at.isoformat())
 
         @router.get(
@@ -474,12 +584,186 @@ class AdminControllerFactory:
                 for permission in permissions
             ]
 
+        @router.patch(
+            "/workspaces/{workspace_id}/disable",
+            response_model=DisableWorkspaceResponse,
+        )
+        async def disable_workspace(
+            workspace_id: str,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_workspaces"))],
+        ) -> DisableWorkspaceResponse:
+            try:
+                workspace = await self._disable_workspace_use_case.execute(
+                    DisableWorkspaceInput(
+                        workspace_id=workspace_id,
+                        actor_id=auth.admin_id,
+                        audit_metadata={"source": "admin"},
+                    )
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+            except LookupError as exc:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+            return DisableWorkspaceResponse(
+                id=workspace.id,
+                name=workspace.name,
+                is_active=workspace.is_active,
+                created_at=workspace.created_at.isoformat(),
+            )
+
+        @router.post(
+            "/rate-limit-configs",
+            response_model=RateLimitConfigResponse,
+            status_code=status.HTTP_201_CREATED,
+        )
+        async def create_rate_limit_config(
+            payload: CreateRateLimitConfigRequest,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_rate_limits"))],
+        ) -> RateLimitConfigResponse:
+            scope = _normalize_scope(payload.scope)
+            key = payload.key.strip()
+            if not key:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="key is required")
+            workspace_id = payload.workspace_id.strip() if isinstance(payload.workspace_id, str) else None
+
+            config = RateLimitConfig(
+                id=f"rlc_{uuid4().hex[:24]}",
+                workspace_id=workspace_id,
+                scope=scope,  # type: ignore[arg-type,assignment]
+                key=key,
+                limit=payload.limit,
+                window_seconds=payload.window_seconds,
+            )
+            saved = await self._rate_limit_config_repository.save(config)
+            await self._audit_logger.log(
+                actor_id=auth.admin_id,
+                action="rate_limit.create",
+                resource="rate_limit_config",
+                resource_id=saved.id or "",
+                before=None,
+                after={
+                    "id": saved.id,
+                    "workspace_id": saved.workspace_id,
+                    "scope": saved.scope,
+                    "key": saved.key,
+                    "limit": saved.limit,
+                    "window_seconds": saved.window_seconds,
+                },
+            )
+            return RateLimitConfigResponse(
+                id=saved.id or "",
+                workspace_id=saved.workspace_id,
+                scope=saved.scope,
+                key=saved.key,
+                limit=saved.limit,
+                window_seconds=saved.window_seconds,
+            )
+
+        @router.put(
+            "/rate-limit-configs/{config_id}",
+            response_model=RateLimitConfigResponse,
+        )
+        async def update_rate_limit_config(
+            config_id: str,
+            payload: UpdateRateLimitConfigRequest,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_rate_limits"))],
+        ) -> RateLimitConfigResponse:
+            workspace_id = payload.workspace_id.strip() if isinstance(payload.workspace_id, str) else ""
+            before_config = await self._rate_limit_config_repository.get_by_id(config_id=config_id, workspace_id=workspace_id)
+            if before_config is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rate limit config not found")
+            normalized_key = payload.key.strip()
+            if not normalized_key:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="key is required")
+
+            updated = await self._rate_limit_config_repository.update(
+                RateLimitConfig(
+                    id=config_id,
+                    workspace_id=payload.workspace_id.strip() if isinstance(payload.workspace_id, str) else None,
+                    scope=_normalize_scope(payload.scope),  # type: ignore[arg-type,assignment]
+                    key=normalized_key,
+                    limit=payload.limit,
+                    window_seconds=payload.window_seconds,
+                )
+            )
+            await self._audit_logger.log(
+                actor_id=auth.admin_id,
+                action="rate_limit.update",
+                resource="rate_limit_config",
+                resource_id=config_id,
+                before={
+                    "id": before_config.id,
+                    "workspace_id": before_config.workspace_id,
+                    "scope": before_config.scope,
+                    "key": before_config.key,
+                    "limit": before_config.limit,
+                    "window_seconds": before_config.window_seconds,
+                },
+                after={
+                    "id": updated.id,
+                    "workspace_id": updated.workspace_id,
+                    "scope": updated.scope,
+                    "key": updated.key,
+                    "limit": updated.limit,
+                    "window_seconds": updated.window_seconds,
+                },
+            )
+            return RateLimitConfigResponse(
+                id=updated.id or "",
+                workspace_id=updated.workspace_id,
+                scope=updated.scope,
+                key=updated.key,
+                limit=updated.limit,
+                window_seconds=updated.window_seconds,
+            )
+
+        @router.delete("/rate-limit-configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+        async def delete_rate_limit_config(
+            config_id: str,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_rate_limits"))],
+            workspace_id: str | None = None,
+        ) -> None:
+            scoped_workspace_id = workspace_id.strip() if isinstance(workspace_id, str) else ""
+            before_config = await self._rate_limit_config_repository.get_by_id(
+                config_id=config_id,
+                workspace_id=scoped_workspace_id,
+            )
+            if before_config is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rate limit config not found")
+
+            deleted = await self._rate_limit_config_repository.delete(
+                config_id=config_id,
+                workspace_id=before_config.workspace_id,
+            )
+            if not deleted:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="rate limit config not found")
+
+            await self._audit_logger.log(
+                actor_id=auth.admin_id if auth is not None else None,
+                action="rate_limit.delete",
+                resource="rate_limit_config",
+                resource_id=config_id,
+                before={
+                    "id": before_config.id,
+                    "workspace_id": before_config.workspace_id,
+                    "scope": before_config.scope,
+                    "key": before_config.key,
+                    "limit": before_config.limit,
+                    "window_seconds": before_config.window_seconds,
+                },
+                after=None,
+            )
+
         @router.post(
             "/roles/{role_id}/permissions",
             status_code=status.HTTP_204_NO_CONTENT,
-            dependencies=[Depends(require_permission("manage_roles"))],
         )
-        async def assign_permission(role_id: str, payload: AssignPermissionRequest) -> None:
+        async def assign_permission(
+            role_id: str,
+            payload: AssignPermissionRequest,
+            auth: Annotated[AdminAuthContext, Depends(require_permission("manage_roles"))],
+        ) -> None:
             """Assign a permission to a role.
 
             Args:
@@ -503,7 +787,18 @@ class AdminControllerFactory:
             if permission is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="permission not found")
 
+            before_permissions = await self._role_repository.list_permissions(role_id)
             await self._role_repository.assign_permission(role_id=role_id, permission_id=payload.permission_id)
+            after_permissions = await self._role_repository.list_permissions(role_id)
+            await self._audit_logger.log(
+                actor_id=auth.admin_id,
+                action="role.assign_permission",
+                resource="role",
+                resource_id=role_id,
+                before={"permissions": [item.name for item in before_permissions]},
+                after={"permissions": [item.name for item in after_permissions]},
+                metadata={"permission_id": payload.permission_id, "permission_name": permission.name},
+            )
 
         @router.get(
             "/roles/{role_id}/permissions",

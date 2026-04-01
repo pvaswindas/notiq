@@ -126,6 +126,8 @@ class ChannelControllerFactory:
                         config=request.config,
                         group=request.group,
                         is_active=request.is_active,
+                        actor_id=None,
+                        audit_metadata={"source": "channel_api"},
                     )
                 )
             except ValueError as exc:
@@ -178,6 +180,8 @@ class ChannelControllerFactory:
                         config=request.config,
                         group=request.group,
                         is_active=request.is_active,
+                        actor_id=None,
+                        audit_metadata={"source": "channel_api"},
                     )
                 )
             except ValueError as exc:
@@ -204,6 +208,8 @@ class ChannelControllerFactory:
                     DisableChannelInput(
                         channel_id=channel_id,
                         workspace_id=request.workspace_id,
+                        actor_id=None,
+                        audit_metadata={"source": "channel_api"},
                     )
                 )
             except ValueError as exc:
