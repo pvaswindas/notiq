@@ -61,12 +61,59 @@ How it interacts:
 - Claimed and transitioned by processing use case.
 - Tracks retries, lease ownership, and final state.
 
+### ApiKey (Compatibility Auth Domain)
+Why it exists:
+- Models workspace-scoped machine credentials for compatibility APIs.
+
+What problem it solves:
+- Allows non-human services to authenticate ingestion/management requests.
+
+How it interacts:
+- Auth service validates hashed key material and projects `AuthenticatedPrincipal`.
+- `/events` and API-key management routes derive workspace access control from this model.
+
+### Admin (Administrative Domain)
+Why it exists:
+- Represents a human operator identity for platform governance actions.
+
+What problem it solves:
+- Enables secure login and scoped operational control separate from workspace API keys.
+
+How it interacts:
+- Authenticated by `AdminAuthService`.
+- Assigned roles for permission checks on `/admin` routes.
+
+### Role (Administrative Domain)
+Why it exists:
+- Groups permissions into reusable authorization bundles.
+
+What problem it solves:
+- Avoids per-admin direct permission sprawl and simplifies operational policy management.
+
+How it interacts:
+- Assigned to admins.
+- Linked to permissions used by RBAC checks.
+
+### Permission (Administrative Domain)
+Why it exists:
+- Defines atomic allowed admin actions (for example `manage_admins`).
+
+What problem it solves:
+- Provides explicit, auditable authorization semantics for each privileged endpoint.
+
+How it interacts:
+- Assigned to roles.
+- Evaluated by `RbacService` in `require_permission(...)`.
+
 ## Relationships
 - `Workspace 1 -> N Channel`
 - `Workspace 1 -> N DeliveryJob`
 - `Channel 1 -> N DeliveryJob`
 - `ProviderAccount 1 -> N DeliveryJob`
 - `ProviderAccount 0..1 <- Channel` (optional explicit binding)
+- `Workspace 1 -> N ApiKey`
+- `Admin N <-> N Role`
+- `Role N <-> N Permission`
 
 ## Value Objects and Domain Services
 - `ProviderKey`: normalizes provider identity.
@@ -78,5 +125,8 @@ Legacy `/events` flow uses:
 - `src/domain/entities/event.py`
 - `src/domain/entities/channel.py`
 - `src/domain/rate_limit/entities.py`
+- Compatibility auth/admin models also exist outside the notifications module:
+  - `src/domain/auth/entities.py`
+  - `src/domain/admin/entities.py`
 
 These are compatibility models and must not become the default modeling target for new primary notification capabilities.

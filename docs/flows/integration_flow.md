@@ -20,6 +20,15 @@ Describe how API boundaries, persistence, queues, auth, and provider integration
 - Adapters: `WorkspaceControllerFactory`, `ChannelControllerFactory`, `ApiKeyControllerFactory`.
 - API-key endpoints and `/events` enforce workspace-aware API key auth.
 
+### Admin RBAC Endpoints
+- Prefix: `/admin`
+- Adapter: `AdminControllerFactory`.
+- Auth:
+  - `POST /admin/auth/login` is unauthenticated.
+  - Most `/admin/*` routes require `Authorization: Bearer <admin_jwt>`.
+  - Mutating admin/role/permission routes add permission guards via `require_permission(...)`.
+- Action: request schema -> admin use case and/or RBAC service -> repository-backed persistence updates.
+
 ## Outbound Integrations
 ### Databases
 - PostgreSQL stores workspaces, channels, api keys, provider accounts, delivery jobs, idempotency keys.
@@ -49,6 +58,10 @@ Describe how API boundaries, persistence, queues, auth, and provider integration
 - Validation failures return `422` from FastAPI/Pydantic.
 - Known business validation in compatibility routes maps to `400`/`404`.
 - Provider and network failures enter retry/terminal policy logic in job execution or Celery retry behavior.
+- Admin lifecycle and RBAC conflicts map to explicit API failures:
+  - duplicate admin/role/permission names -> `409`.
+  - missing admin/role/permission references -> `404`.
+  - insufficient permission grants -> `403`.
 
 ## Extension Guardrails
 1. Add integration behavior behind ports first.

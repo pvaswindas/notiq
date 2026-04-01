@@ -4,6 +4,7 @@
 Primary orchestration for notifications is implemented in `src/modules/notifications/application`.
 
 A compatibility orchestration path remains in `src/application/use_cases/process_event_use_case.py` for the legacy `/events` endpoint.
+Administrative orchestration for RBAC/governance APIs is implemented under `src/application/admin_use_cases` and `src/application/services`.
 
 ## Primary Use Cases
 
@@ -53,3 +54,59 @@ Important constraints:
 Legacy `ProcessEventUseCase` fans out channels into Celery tasks.
 
 Associated compatibility services (for example rate-limit resolution) remain valid only for `/events` behavior and should not absorb new primary architecture work.
+
+## Administrative Use Cases
+
+### LoginAdminUseCase
+What it does:
+- Delegates admin credential verification and JWT issuance to `AdminAuthService`.
+
+Decision flow:
+1. Normalize email and validate non-empty credentials.
+2. Load admin by email.
+3. Verify password hash.
+4. Verify admin is active.
+5. Resolve assigned roles.
+6. Mint signed access token with role claims and expiration.
+
+Important constraints:
+- Token structure and expiration come from runtime settings.
+- Password policy and hashing remain centralized in auth service.
+
+### CreateAdminUseCase
+What it does:
+- Creates a new admin identity with optional initial role assignments.
+
+Decision flow:
+1. Normalize and validate input fields.
+2. Check duplicate email.
+3. Validate each requested role id exists.
+4. Hash password.
+5. Persist admin record.
+6. Persist admin-role assignments.
+
+Important constraints:
+- Must reject unknown roles before creating admin.
+- Must never persist plaintext passwords.
+
+### AssignRoleUseCase
+What it does:
+- Assigns one role to one admin after existence checks.
+
+Decision flow:
+1. Verify admin exists.
+2. Verify role exists.
+3. Persist admin-role link.
+
+Important constraints:
+- Missing entities are handled as explicit `404` failures.
+
+## Administrative Services
+
+### AdminAuthService
+- Handles admin password hashing/verification and JWT encode/decode.
+- Enforces login failure semantics (`400`, `401`, `403`) used by admin auth endpoints.
+
+### RbacService
+- Resolves effective permissions for an authenticated admin.
+- Used by route dependencies to guard mutating admin/role/permission endpoints.
