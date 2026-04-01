@@ -60,6 +60,23 @@ class PostgresRateLimitConfigRepository(RateLimitConfigRepository):
             await session.refresh(model)
             return self._to_domain(model)
 
+    async def delete(self, config_id: str, workspace_id: str | None) -> bool:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(RateLimitConfigModel).where(RateLimitConfigModel.id == config_id))
+            model = result.scalar_one_or_none()
+            if model is None:
+                return False
+
+            if workspace_id is None:
+                if model.workspace_id is not None:
+                    return False
+            elif model.workspace_id != workspace_id:
+                return False
+
+            await session.delete(model)
+            await session.commit()
+            return True
+
     def get_group_config(self, group: str, workspace_id: str | None = None) -> RateLimitConfig | None:
         return self._run_sync(self._get_scope_config(scope="group", key=group, workspace_id=workspace_id))
 
