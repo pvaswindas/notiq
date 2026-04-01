@@ -74,3 +74,19 @@ class EventLogModel(Base):
         Index("ix_event_logs_workspace_created_at", "workspace_id", "created_at"),
         Index("ix_event_logs_workspace_correlation", "workspace_id", "correlation_id"),
     )
+
+
+class ApiKeyModel(Base):
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_api_keys_workspace_id", "workspace_id"),
+        Index("ux_api_keys_key_hash", "key_hash", unique=True),
+    )
