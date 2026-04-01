@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from src.adapters.http.admin_controller import AdminControllerFactory
+from src.adapters.http.admin_audit_controller import AdminAuditControllerFactory
 from src.adapters.http.channel_controller import ChannelControllerFactory
 from src.adapters.http.controllers.api_key_controller import ApiKeyControllerFactory
 from src.adapters.http.events_router import EventRouterFactory
@@ -37,6 +38,7 @@ class ApplicationFactory:
         ).build()
         api_key_router = ApiKeyControllerFactory().build()
         admin_router = AdminControllerFactory().build()
+        admin_audit_router = AdminAuditControllerFactory().build()
 
         app.include_router(notification_router)
         app.include_router(events_router)
@@ -44,5 +46,6 @@ class ApplicationFactory:
         app.include_router(channel_router)
         app.include_router(api_key_router)
         app.include_router(admin_router)
+        app.include_router(admin_audit_router)
 
         return app

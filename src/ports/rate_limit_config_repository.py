@@ -20,6 +20,10 @@ class RateLimitConfigRepository(ABC):
     async def update(self, config: RateLimitConfig) -> RateLimitConfig:
         ...
 
+    @abstractmethod
+    async def delete(self, config_id: str, workspace_id: str | None) -> bool:
+        ...
+
 
 class RateLimitConfigRepositoryPort(ABC):
     """Port for retrieving scoped rate-limit policies.

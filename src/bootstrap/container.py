@@ -3,10 +3,13 @@ from dataclasses import dataclass
 from src.application.use_cases.create_channel import CreateChannelUseCase
 from src.application.use_cases.create_workspace import CreateWorkspaceUseCase
 from src.application.use_cases.disable_channel import DisableChannelUseCase
+from src.application.use_cases.disable_workspace import DisableWorkspaceUseCase
 from src.application.use_cases.get_workspace import GetWorkspaceUseCase
 from src.application.use_cases.list_channels import ListChannelsUseCase
 from src.application.use_cases.list_workspaces import ListWorkspacesUseCase
 from src.application.use_cases.update_channel import UpdateChannelUseCase
+from src.application.services.audit_logger import AuditLogger
+from src.infrastructure.database.repositories.postgres_audit_log_repository import PostgresAuditLogRepository
 from src.infrastructure.database.repositories.postgres_channel_repository import (
     PostgresChannelRepository as PublicApiPostgresChannelRepository,
 )
@@ -40,6 +43,7 @@ class Container:
     send_notification_use_case: SendNotificationUseCase
     process_delivery_job_use_case: ProcessDeliveryJobUseCase
     create_workspace_use_case: CreateWorkspaceUseCase
+    disable_workspace_use_case: DisableWorkspaceUseCase
     get_workspace_use_case: GetWorkspaceUseCase
     list_workspaces_use_case: ListWorkspacesUseCase
     create_channel_use_case: CreateChannelUseCase
@@ -68,6 +72,8 @@ class ContainerFactory:
 
         public_api_workspace_repository = PublicApiPostgresWorkspaceRepository()
         public_api_channel_repository = PublicApiPostgresChannelRepository()
+        audit_log_repository = PostgresAuditLogRepository()
+        audit_logger = AuditLogger(audit_log_repository=audit_log_repository)
 
         sender_registry = SenderRegistry(
             senders={
@@ -96,24 +102,39 @@ class ContainerFactory:
             delivery_job_repository=delivery_job_repository,
         )
 
-        create_workspace_use_case = CreateWorkspaceUseCase(workspace_repository=public_api_workspace_repository)
+        create_workspace_use_case = CreateWorkspaceUseCase(
+            workspace_repository=public_api_workspace_repository,
+            audit_logger=audit_logger,
+        )
+        disable_workspace_use_case = DisableWorkspaceUseCase(
+            workspace_repository=public_api_workspace_repository,
+            audit_logger=audit_logger,
+        )
         get_workspace_use_case = GetWorkspaceUseCase(workspace_repository=public_api_workspace_repository)
         list_workspaces_use_case = ListWorkspacesUseCase(workspace_repository=public_api_workspace_repository)
         create_channel_use_case = CreateChannelUseCase(
             channel_repository=public_api_channel_repository,
             workspace_repository=public_api_workspace_repository,
+            audit_logger=audit_logger,
         )
         list_channels_use_case = ListChannelsUseCase(
             channel_repository=public_api_channel_repository,
             workspace_repository=public_api_workspace_repository,
         )
-        update_channel_use_case = UpdateChannelUseCase(channel_repository=public_api_channel_repository)
-        disable_channel_use_case = DisableChannelUseCase(channel_repository=public_api_channel_repository)
+        update_channel_use_case = UpdateChannelUseCase(
+            channel_repository=public_api_channel_repository,
+            audit_logger=audit_logger,
+        )
+        disable_channel_use_case = DisableChannelUseCase(
+            channel_repository=public_api_channel_repository,
+            audit_logger=audit_logger,
+        )
 
         return Container(
             send_notification_use_case=send_notification_use_case,
             process_delivery_job_use_case=process_delivery_job_use_case,
             create_workspace_use_case=create_workspace_use_case,
+            disable_workspace_use_case=disable_workspace_use_case,
             get_workspace_use_case=get_workspace_use_case,
             list_workspaces_use_case=list_workspaces_use_case,
             create_channel_use_case=create_channel_use_case,

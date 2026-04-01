@@ -23,3 +23,7 @@ class WorkspaceRepository(ABC):
     @abstractmethod
     async def update(self, workspace: Workspace) -> Workspace:
         ...
+
+    @abstractmethod
+    async def set_active(self, workspace_id: str, is_active: bool) -> Workspace | None:
+        ...
