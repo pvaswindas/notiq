@@ -19,6 +19,11 @@ class PostgresWorkspaceRepository(WorkspaceRepository):
             result = await session.execute(select(WorkspaceModel).where(WorkspaceModel.id == workspace_id))
             return [self._to_domain(model) for model in result.scalars().all()]
 
+    async def list_all(self) -> list[Workspace]:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(WorkspaceModel))
+            return [self._to_domain(model) for model in result.scalars().all()]
+
     async def save(self, workspace: Workspace) -> Workspace:
         async with AsyncSessionLocal() as session:
             model = WorkspaceModel(id=workspace.id, name=workspace.name, created_at=workspace.created_at)

@@ -13,6 +13,10 @@ class WorkspaceRepository(ABC):
         ...
 
     @abstractmethod
+    async def list_all(self) -> list[Workspace]:
+        ...
+
+    @abstractmethod
     async def save(self, workspace: Workspace) -> Workspace:
         ...
 
