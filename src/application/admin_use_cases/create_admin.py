@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 
+from src.application.services.audit_logger import AuditLogger
 from src.application.services.auth_service import AdminAuthService
 from src.domain.admin.entities import Admin
 from src.ports.admin_repository import AdminRepository
@@ -16,6 +17,8 @@ class CreateAdminInput:
     email: str
     password: str
     role_ids: tuple[str, ...]
+    actor_id: str | None = None
+    audit_metadata: dict[str, object] | None = None
 
 
 class CreateAdminUseCase:
@@ -31,12 +34,14 @@ class CreateAdminUseCase:
         admin_repository: AdminRepository,
         role_repository: RoleRepository,
         auth_service: AdminAuthService,
+        audit_logger: AuditLogger | None = None,
     ) -> None:
         """Store repositories and auth service used by create-admin flow."""
 
         self._admin_repository = admin_repository
         self._role_repository = role_repository
         self._auth_service = auth_service
+        self._audit_logger = audit_logger
 
     async def execute(self, dto: CreateAdminInput) -> Admin:
         """Create an admin and assign requested roles.
@@ -85,5 +90,23 @@ class CreateAdminUseCase:
 
         for role_id in dto.role_ids:
             await self._admin_repository.assign_role(admin.id, role_id)
+
+        if self._audit_logger is not None:
+            roles = await self._role_repository.list_by_admin(admin.id)
+            await self._audit_logger.log(
+                actor_id=dto.actor_id,
+                action="admin.create",
+                resource="admin",
+                resource_id=admin.id,
+                before=None,
+                after={
+                    "id": admin.id,
+                    "name": admin.name,
+                    "email": admin.email,
+                    "is_active": admin.is_active,
+                    "roles": [role.name for role in roles],
+                },
+                metadata=dto.audit_metadata,
+            )
 
         return admin

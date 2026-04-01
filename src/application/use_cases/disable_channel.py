@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from src.application.services.audit_logger import AuditLogger
 from src.domain.entities.channel import Channel
 from src.ports.channel_repository import ChannelRepository
 
@@ -8,11 +9,18 @@ from src.ports.channel_repository import ChannelRepository
 class DisableChannelInput:
     channel_id: str
     workspace_id: str
+    actor_id: str | None = None
+    audit_metadata: dict[str, object] | None = None
 
 
 class DisableChannelUseCase:
-    def __init__(self, channel_repository: ChannelRepository) -> None:
+    def __init__(
+        self,
+        channel_repository: ChannelRepository,
+        audit_logger: AuditLogger | None = None,
+    ) -> None:
         self._channel_repository = channel_repository
+        self._audit_logger = audit_logger
 
     async def execute(self, dto: DisableChannelInput) -> Channel:
         channel_id = dto.channel_id.strip()
@@ -38,4 +46,31 @@ class DisableChannelUseCase:
             config=current_channel.config,
             is_active=False,
         )
-        return await self._channel_repository.update(disabled_channel)
+        saved_channel = await self._channel_repository.update(disabled_channel)
+
+        if self._audit_logger is not None:
+            await self._audit_logger.log(
+                actor_id=dto.actor_id,
+                action="channel.disable",
+                resource="channel",
+                resource_id=saved_channel.id,
+                before={
+                    "id": current_channel.id,
+                    "workspace_id": current_channel.workspace_id,
+                    "provider": current_channel.provider,
+                    "group": current_channel.group,
+                    "config": current_channel.config,
+                    "is_active": current_channel.is_active,
+                },
+                after={
+                    "id": saved_channel.id,
+                    "workspace_id": saved_channel.workspace_id,
+                    "provider": saved_channel.provider,
+                    "group": saved_channel.group,
+                    "config": saved_channel.config,
+                    "is_active": saved_channel.is_active,
+                },
+                metadata=dto.audit_metadata,
+            )
+
+        return saved_channel

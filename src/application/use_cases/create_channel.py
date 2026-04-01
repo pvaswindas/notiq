@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
+from src.application.services.audit_logger import AuditLogger
 from src.domain.entities.channel import Channel
 from src.ports.channel_repository import ChannelRepository
 from src.ports.workspace_repository import WorkspaceRepository
@@ -14,6 +15,8 @@ class CreateChannelInput:
     config: dict[str, Any] | None = None
     group: str | None = None
     is_active: bool | None = None
+    actor_id: str | None = None
+    audit_metadata: dict[str, object] | None = None
 
 
 class CreateChannelUseCase:
@@ -21,9 +24,11 @@ class CreateChannelUseCase:
         self,
         channel_repository: ChannelRepository,
         workspace_repository: WorkspaceRepository,
+        audit_logger: AuditLogger | None = None,
     ) -> None:
         self._channel_repository = channel_repository
         self._workspace_repository = workspace_repository
+        self._audit_logger = audit_logger
 
     async def execute(self, dto: CreateChannelInput) -> Channel:
         workspace_id = dto.workspace_id.strip()
@@ -46,4 +51,24 @@ class CreateChannelUseCase:
             config=dto.config or {},
             is_active=True if dto.is_active is None else dto.is_active,
         )
-        return await self._channel_repository.save(channel)
+        created_channel = await self._channel_repository.save(channel)
+
+        if self._audit_logger is not None:
+            await self._audit_logger.log(
+                actor_id=dto.actor_id,
+                action="channel.create",
+                resource="channel",
+                resource_id=created_channel.id,
+                before=None,
+                after={
+                    "id": created_channel.id,
+                    "workspace_id": created_channel.workspace_id,
+                    "provider": created_channel.provider,
+                    "group": created_channel.group,
+                    "config": created_channel.config,
+                    "is_active": created_channel.is_active,
+                },
+                metadata=dto.audit_metadata,
+            )
+
+        return created_channel
