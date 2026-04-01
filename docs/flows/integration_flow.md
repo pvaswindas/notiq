@@ -1,57 +1,56 @@
 # Integration Flow
 
-## Scope
-This document explains integration points and routing between core logic and external systems.
+## Purpose
+Describe how API boundaries, persistence, queues, auth, and provider integrations connect to application use cases.
 
 ## Inbound Integrations
-### `POST /notifications/send`
+### Primary Notifications Endpoint
+- `POST /notifications/send`
 - Adapter: `NotificationRouterFactory`
-- Contract: `SendNotificationRequest`
-- Action: map HTTP payload to `SendNotificationCommand`
-- Output: enqueue summary response
+- Auth: currently no auth dependency in this route.
+- Action: request schema -> command -> `SendNotificationUseCase`.
 
-### `POST /events` (Legacy Compatibility)
+### Compatibility Event Endpoint
+- `POST /events`
 - Adapter: `EventRouterFactory`
-- Contract: `EventIngestionRequest`
-- Action: map event payload to legacy `ProcessEventUseCase`
-- Output: `{"status": "accepted"}` on success
-- Continuation: one Celery task per channel executes idempotency + rate-limit + provider send sequence
+- Auth: requires `Authorization: Bearer <api_key>`.
+- Action: request schema + auth context -> legacy `ProcessEventUseCase`.
+
+### Workspace/Channel/API-Key Management Endpoints
+- Adapters: `WorkspaceControllerFactory`, `ChannelControllerFactory`, `ApiKeyControllerFactory`.
+- API-key endpoints and `/events` enforce workspace-aware API key auth.
 
 ## Outbound Integrations
-### Provider Senders
-- Interface: `NotificationSenderPort`
-- Implementations: Telegram, Email
-- Routing: `SenderRegistry.resolve(provider_key)`
-- Credentials source: `ProviderAccount.credentials_ref`
+### Databases
+- PostgreSQL stores workspaces, channels, api keys, provider accounts, delivery jobs, idempotency keys.
+- SQLAlchemy async repositories implement persistence ports.
 
-### Persistence
-- SQLAlchemy async session per repository call.
-- Tables used: `workspaces`, `channels`, `provider_accounts`, `delivery_jobs`, `idempotency_keys`.
+### Queueing
+- Primary modular flow: Postgres table-backed queue semantics (`delivery_jobs` claims).
+- Compatibility flow: Celery + Redis broker/backend.
 
-### Queue/Broker
-- Primary flow: Postgres-backed queue semantics via `delivery_jobs` claim model.
-- Legacy flow: Celery + Redis broker/backend for event fan-out task execution.
+### Idempotency and Throttling
+- Primary modular flow: idempotency claims persisted in Postgres-backed repository.
+- Compatibility `/events` flow: Redis idempotency keys + Redis rate limiter.
 
-### Legacy Rate-Limit Dependencies
-- Resolver: `RateLimitResolver` selects group/provider/tenant/global config.
-- Config source: `InMemoryRateLimitConfigRepository` (seeded defaults).
-- Enforcement: `RedisRateLimiter` Lua-scripted atomic counter/expiry check.
+### Provider Delivery
+- Sender registry resolves provider sender adapters (Telegram, Email).
+- Provider credentials are resolved through provider-account abstractions.
 
-## Internal Routing Logic
-1. Inbound adapter maps protocol data to use-case command/entity.
-2. Use case selects ports and orchestrates policy steps.
-3. Port implementation executes I/O (database, provider, broker).
-4. Results are mapped back to API response or persisted state transition.
+## Routing Logic Across Layers
+1. Adapter validates and maps protocol input.
+2. Use case orchestrates policy and routing decisions.
+3. Ports abstract required side effects.
+4. Infrastructure adapters execute I/O.
+5. Adapter maps outcome to HTTP response or persisted lifecycle state.
 
-## Failure Handling At Integration Boundaries
-- Database write conflict on idempotency key: interpreted as duplicate event-channel attempt.
-- Provider network failures: retried by job processing policy.
-- Legacy Celery task failure: task autoretry and idempotency key release on exception.
-- Legacy throttle deny: task requeues itself after releasing idempotency claim.
+## Boundary Failure Handling
+- Auth failures return `401`/`403` at dependency layer.
+- Validation failures return `422` from FastAPI/Pydantic.
+- Known business validation in compatibility routes maps to `400`/`404`.
+- Provider and network failures enter retry/terminal policy logic in job execution or Celery retry behavior.
 
-## Extension Guidance
-To add a new integration safely:
-1. Add or update a port contract only if existing contract cannot express required behavior.
-2. Implement integration in adapter/infrastructure layer.
-3. Register integration in composition root.
-4. Update API/flow/development docs in the same change.
+## Extension Guardrails
+1. Add integration behavior behind ports first.
+2. Keep auth/payload/persistence semantics documented in endpoint files under `docs/api`.
+3. Update this flow doc when routing or external dependency ownership changes.

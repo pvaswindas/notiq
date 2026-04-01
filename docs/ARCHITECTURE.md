@@ -13,11 +13,26 @@ This file points to the canonical architecture documentation set.
 - [Processing Flow](/home/aswin/code/unifiedbits/notiq/docs/flows/processing_flow.md)
 - [Integration Flow](/home/aswin/code/unifiedbits/notiq/docs/flows/integration_flow.md)
 
-## Interfaces
-- [Send Notification API](/home/aswin/code/unifiedbits/notiq/docs/api/send_notification.md)
-- [Ingest Event API](/home/aswin/code/unifiedbits/notiq/docs/api/ingest_event.md)
+## APIs
+- [Send Notification](/home/aswin/code/unifiedbits/notiq/docs/api/send_notification.md)
+- [Ingest Event (Legacy)](/home/aswin/code/unifiedbits/notiq/docs/api/ingest_event.md)
+- [Create Workspace](/home/aswin/code/unifiedbits/notiq/docs/api/create_workspace.md)
+- [Get Workspace](/home/aswin/code/unifiedbits/notiq/docs/api/get_workspace.md)
+- [List Workspaces](/home/aswin/code/unifiedbits/notiq/docs/api/list_workspaces.md)
+- [Create Channel](/home/aswin/code/unifiedbits/notiq/docs/api/create_channel.md)
+- [List Channels](/home/aswin/code/unifiedbits/notiq/docs/api/list_channels.md)
+- [Update Channel](/home/aswin/code/unifiedbits/notiq/docs/api/update_channel.md)
+- [Disable Channel](/home/aswin/code/unifiedbits/notiq/docs/api/disable_channel.md)
+- [Create API Key](/home/aswin/code/unifiedbits/notiq/docs/api/create_api_key.md)
+- [List API Keys](/home/aswin/code/unifiedbits/notiq/docs/api/list_api_keys.md)
+- [Disable API Key](/home/aswin/code/unifiedbits/notiq/docs/api/disable_api_key.md)
 
-## Extension Guides
+## Domain, Application, Infrastructure
+- [Domain Model](/home/aswin/code/unifiedbits/notiq/docs/domain/domain_model.md)
+- [Application Layer](/home/aswin/code/unifiedbits/notiq/docs/application/application_layer.md)
+- [Infrastructure Layer](/home/aswin/code/unifiedbits/notiq/docs/infrastructure/infrastructure_layer.md)
+
+## Development Guides
 - [Adding New Feature](/home/aswin/code/unifiedbits/notiq/docs/development/adding_new_feature.md)
 - [Adding New Integration](/home/aswin/code/unifiedbits/notiq/docs/development/adding_new_integration.md)
 - [Coding Guidelines](/home/aswin/code/unifiedbits/notiq/docs/development/coding_guidelines.md)

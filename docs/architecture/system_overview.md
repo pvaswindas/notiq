@@ -1,55 +1,57 @@
 # Notiq System Overview
 
 ## What The System Does
-Notiq is a multi-tenant notification platform that converts product events into provider-specific delivery attempts.
+Notiq is a multi-tenant notification platform that accepts product events, resolves workspace-specific routing, and executes provider delivery asynchronously.
 
-The runtime currently exposes two ingestion paths:
-- `POST /notifications/send`: primary modular flow that persists delivery jobs in PostgreSQL and processes them through a worker lease model.
-- `POST /events`: legacy event-ingestion path that fans out active channels and enqueues Celery tasks.
+The running API exposes two ingestion families:
+- Primary modular endpoint: `POST /notifications/send`.
+- Compatibility endpoints: `POST /events`, workspace/channel management, and API-key management.
 
 ## Why The System Exists
-Notiq exists to centralize reliability concerns that are hard to implement correctly in every product service:
-- Tenant-safe routing
-- Duplicate suppression (idempotency)
-- Asynchronous delivery and retries
-- Provider abstraction and credential resolution
-- Durable lifecycle tracking for delivery attempts
+Notiq centralizes hard reliability and safety concerns that are expensive to duplicate across product services:
+- Workspace isolation.
+- Deterministic idempotency.
+- Asynchronous delivery with retries.
+- Provider-account resolution and sender abstraction.
+- Operational traceability of delivery attempts.
 
-Without this platform, every product service would duplicate integration logic and operational failure handling.
+This allows product services to emit events while Notiq owns delivery orchestration.
 
 ## Architecture Style
-The codebase is a modular monolith using Hexagonal Architecture (Ports and Adapters), with a transitional legacy ingestion path still present.
+The repository is a modular monolith with hexagonal boundaries, with a transitional compatibility slice still present.
 
-Primary module (`src/modules/notifications`) follows strict layering:
-- `domain`: business entities, value objects, domain services
-- `application`: use-case orchestration
-- `ports`: interfaces for infrastructure and adapters
-- `adapters`: HTTP inbound and provider outbound translators
-- `infrastructure`: concrete persistence, queue, and runtime plumbing
-- `bootstrap`: composition root and runtime wiring
+Primary production orchestration is under `src/modules/notifications` with clean layers:
+- `domain`: core notification language and invariants.
+- `application`: use-case orchestration.
+- `ports`: stable contracts.
+- `adapters`: protocol translators.
+- `infrastructure`: concrete implementations.
+- `bootstrap`: composition roots.
 
-## Core Runtime Components
-- API app factory: [src/bootstrap/app.py](/home/aswin/code/unifiedbits/notiq/src/bootstrap/app.py)
-- Primary composition root: [src/bootstrap/container.py](/home/aswin/code/unifiedbits/notiq/src/bootstrap/container.py)
-- Primary worker orchestration: [src/bootstrap/workers/notification_worker.py](/home/aswin/code/unifiedbits/notiq/src/bootstrap/workers/notification_worker.py)
-- Legacy event-ingestion composition root: [src/bootstrap/event_ingestion_container.py](/home/aswin/code/unifiedbits/notiq/src/bootstrap/event_ingestion_container.py)
-- Celery app: [src/infrastructure/celery_app.py](/home/aswin/code/unifiedbits/notiq/src/infrastructure/celery_app.py)
+Compatibility behavior exists in legacy paths (`src/application`, `src/domain`, `src/adapters`, `src/ports`) and should be extended only when backward compatibility requires it.
 
-## Bounded Contexts In Practice
-### Notification Job Lifecycle (Primary)
-- Ingest command and validate workspace.
-- Resolve channels and provider accounts.
-- Claim idempotency key per `(event, channel)`.
-- Persist `delivery_jobs` rows.
-- Worker claims due jobs with lease semantics.
-- Delivery use case marks `SUCCESS`, schedules retry, or marks `FAILED`.
+## High-Level Runtime Topology
+1. API process starts via `src/main.py` and wires routes in `src/bootstrap/app.py`.
+2. Primary notification intake persists delivery jobs in PostgreSQL.
+3. Delivery jobs are processed asynchronously by worker logic (`ProcessDeliveryJobUseCase`) and sender adapters.
+4. Compatibility `/events` flow enqueues Celery tasks and uses Redis-backed idempotency and throttling controls.
 
-### Event Fan-Out (Legacy)
-- Accept raw event (`workspace_id`, `event_type`, payload).
-- Load active channels from in-memory channel repository.
-- Enqueue one Celery task per `(event, channel)`.
-- Task performs redis-backed idempotency claim, scoped rate-limit check, and provider send.
-- Throttled attempts release idempotency key and self-requeue for a later retry.
+## Public API Surface
+- `POST /notifications/send`
+- `POST /events`
+- `POST /workspaces`
+- `GET /workspaces/{workspace_id}`
+- `GET /workspaces`
+- `POST /workspaces/{workspace_id}/channels`
+- `GET /workspaces/{workspace_id}/channels`
+- `PUT /channels/{channel_id}`
+- `PATCH /channels/{channel_id}/disable`
+- `POST /workspaces/{workspace_id}/api-keys`
+- `GET /workspaces/{workspace_id}/api-keys`
+- `PATCH /api-keys/{api_key_id}/disable`
 
-## Architectural Intent
-The primary path is engineered for durable, auditable, and replaceable delivery orchestration. The legacy path remains for compatibility and should be treated as a transitional seam, not the target for new feature investment.
+## Core Architectural Intent
+- Keep policy decisions in use cases and domain services.
+- Keep infrastructure replaceable behind ports.
+- Keep API adapters thin and protocol-focused.
+- Preserve compatibility endpoints without letting them become the default extension path.

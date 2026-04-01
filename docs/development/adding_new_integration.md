@@ -1,42 +1,34 @@
 # Adding New Integration
 
 ## Scope
-Use this guide for new outbound provider integrations, storage integrations, or queue/broker integrations.
+Use this guide for new provider, persistence, queue, or auth-adjacent integrations.
 
-## Pattern For New Provider
-1. Implement `NotificationSenderPort` in `src/modules/notifications/adapters/outbound/<provider>/`.
-2. Validate `provider_account.provider_key` inside sender.
-3. Keep credentials retrieval indirection through `credentials_ref`.
-4. Register sender in `ContainerFactory` sender registry map.
-5. Ensure provider account records are available (`provider_accounts` table).
-6. Update API/flow docs if behavior or payload mapping changes.
+## New Provider Integration Pattern
+1. Implement sender behind `NotificationSenderPort`.
+2. Validate provider/account compatibility in adapter.
+3. Keep credential source handling in provider-account abstractions.
+4. Register sender in container wiring.
+5. Add/update tests for unsupported provider paths.
+6. Update API + flow docs where behavior changes.
 
-## Pattern For New Persistence Adapter
-1. Implement relevant repository port(s) under infrastructure.
-2. Keep mapping between ORM/document model and immutable domain entities explicit.
-3. Preserve claim/update atomicity guarantees.
-4. Update migration/model docs when schema/index behavior changes.
+## New Persistence Integration Pattern
+1. Implement repository ports with explicit mappings.
+2. Preserve atomicity for dedupe claims and job transitions.
+3. Keep domain objects free from persistence model leakage.
+4. Document schema/index implications.
 
-## Pattern For New Queue/Broker
-1. Keep application use-case contracts unchanged when possible.
-2. Encapsulate broker behavior in infrastructure adapter.
-3. Document delivery guarantees (at-most-once, at-least-once) and retry ownership.
-4. Update deployment docs (`docker-compose`, env vars) accordingly.
+## New Queue/Broker Pattern
+1. Preserve use-case contracts where possible.
+2. Encapsulate broker runtime details in infrastructure.
+3. Document delivery guarantees and retry ownership.
+4. Update deployment/env guidance.
 
-## Pattern For New Rate-Limit Backend (Legacy `/events`)
-1. Implement `RateLimiterPort` in infrastructure layer.
-2. Preserve atomic check-and-increment semantics for concurrency safety.
-3. Keep key format stable (`scope + key`) unless migration plan is documented.
-4. Ensure throttle deny path remains retry-safe (idempotency key release before requeue).
-5. Update architecture + flow docs with decision order and operational impact.
+## Compatibility `/events` Integrations
+1. Keep rate-limit policy selection in compatibility application services.
+2. Keep backend enforcement in infrastructure adapters.
+3. Preserve retry safety (release idempotency claim before requeue/retry failure).
 
-## Architecture Constraints
-- Integrations must remain replaceable through ports.
-- Use cases must not import SDK-specific clients.
-- Runtime wiring remains centralized in bootstrap/container files.
-
-## Validation Checklist
-1. Unsupported provider/configuration paths fail with clear errors.
-2. Retries and terminal failures remain observable in persisted state.
-3. Idempotency is preserved across integration boundary failures.
-4. Documentation includes extension steps and operational caveats.
+## Guardrails
+- Do not couple use cases to SDK clients.
+- Do not bypass composition roots for runtime wiring.
+- Do not merge incompatible semantics between primary and compatibility flows without explicit migration planning.

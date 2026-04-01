@@ -1,39 +1,31 @@
 # Adding New Feature
 
 ## Goal
-Add feature behavior without breaking architecture boundaries or runtime reliability.
+Ship new behavior without violating layer boundaries, tenant isolation, or delivery reliability guarantees.
 
 ## Safe Extension Workflow
-1. Clarify whether feature belongs to primary notifications module or legacy compatibility path.
-2. Model domain changes first (`src/modules/notifications/domain`) when business language changes.
-3. Add/adjust application orchestration in use cases (`src/modules/notifications/application`).
-4. Introduce or update port contracts if new external interaction is required.
-5. Implement infrastructure/adapters behind ports.
-6. Wire dependencies in composition root (`src/bootstrap/container.py`).
-7. Update docs in `docs/architecture`, `docs/flows`, `docs/api`, and relevant development guides.
+1. Decide whether feature belongs to primary modular flow or compatibility flow.
+2. Model new domain language/invariants first (when needed).
+3. Implement or adjust application use-case orchestration.
+4. Add/refine ports for new side effects.
+5. Implement adapters/infrastructure behind those ports.
+6. Wire dependencies in bootstrap/container.
+7. Update docs and docstrings in the same change.
 
-## Architecture Rules To Follow
-- New production feature work should target modular notifications layers, not legacy `src/application` and `src/domain` paths.
-- Keep business rules out of HTTP routes, Celery tasks, and repository implementations.
-- Preserve deterministic idempotency behavior when introducing new routing dimensions.
+## Architecture Rules
+- Prefer `src/modules/notifications` for all net-new production behavior.
+- Keep controllers/routes/task wrappers thin and translation-focused.
+- Keep retry, dedupe, and routing policies in application/domain layers.
 
-## Common Mistakes To Avoid
-- Adding provider-specific branching directly inside use cases.
-- Returning delivery success semantics from API intake endpoint.
-- Bypassing repository ports with direct ORM/session usage from application layer.
-- Introducing cross-tenant queries without explicit workspace scoping.
-- Adding legacy throttling logic directly inside Celery task body instead of through resolver + ports.
+## Common Mistakes
+- Putting provider-specific branching in use cases.
+- Returning provider-delivered semantics from intake endpoints.
+- Accessing ORM session directly from application layer.
+- Skipping workspace ownership checks in compatibility APIs.
 
-## Legacy Compatibility Feature Rule
-When feature work must touch `/events` compatibility flow:
-1. Keep policy selection in legacy application service (`RateLimitResolver`).
-2. Keep backend-specific counting logic in infrastructure adapter (`RateLimiterPort` implementation).
-3. Preserve idempotency-key release before any manual requeue/retry path.
-4. Update `docs/api/ingest_event.md` and `docs/flows/integration_flow.md` in the same change.
-
-## Feature Readiness Checklist
-1. Do API docs reflect request/response behavior and error cases?
-2. Are new or changed flow steps documented end-to-end?
-3. Are failure/retry semantics explicitly covered?
-4. Are docstrings updated for all modified classes/functions?
-5. Is migration impact documented when schema changes are introduced?
+## Feature Checklist
+1. Endpoints updated in `docs/api` with real payloads and errors.
+2. `docs/flows` reflects success and failure continuation.
+3. `docs/architecture` and dependency rules still hold.
+4. Modified classes/functions contain architecture-grade docstrings.
+5. Any schema changes include migration + documentation updates.

@@ -1,66 +1,55 @@
 # Application Layer
 
 ## Scope
-The primary application layer lives in `src/modules/notifications/application` and orchestrates notification intake and job processing.
+Primary orchestration for notifications is implemented in `src/modules/notifications/application`.
 
-A smaller legacy use case exists in `src/application/use_cases/process_event_use_case.py` for compatibility endpoint `/events`.
+A compatibility orchestration path remains in `src/application/use_cases/process_event_use_case.py` for the legacy `/events` endpoint.
 
 ## Primary Use Cases
 
 ### SendNotificationUseCase
-Purpose:
-- Convert inbound notification request into persisted, deduplicated delivery jobs.
+What it does:
+- Converts one inbound command into deduplicated persisted delivery jobs.
 
-Key orchestration decisions:
-1. Validate required command identity fields.
-2. Validate workspace existence and active status.
-3. Load active channels and apply optional channel filter.
+Decision flow:
+1. Validate required command identifiers.
+2. Validate workspace exists and is active.
+3. Resolve active channels and apply optional `channel_ids` filter.
 4. Resolve provider account per channel.
-5. Generate and claim channel dedupe key.
-6. Persist delivery job for successful claims.
+5. Compute/claim channel-level idempotency key.
+6. Persist new delivery jobs for successful claims.
 7. Return enqueue summary.
 
 Important constraints:
-- No direct infrastructure or SDK logic.
-- Idempotency is channel-level.
-- Explicit misconfigured account fails fast for that channel path.
+- No direct dependency on concrete infrastructure classes.
+- Per-channel dedupe behavior is intentional.
 
 ### ProcessDeliveryJobUseCase
-Purpose:
-- Execute a claimed job and persist lifecycle transitions.
+What it does:
+- Executes one claimed job and persists lifecycle transition.
 
-Key orchestration decisions:
+Decision flow:
 1. Validate provider account availability.
 2. Resolve sender by provider key.
-3. Execute send attempt.
-4. Classify error as transient or permanent.
+3. Attempt send.
+4. Classify exception as transient/non-transient.
 5. Persist `SUCCESS`, retryable `PENDING`, or terminal `FAILED`.
 
 Important constraints:
-- Must clear lease ownership fields on completion path.
-- Retry policy remains centralized in this use case.
+- Lease ownership fields must be cleared on persisted outcomes.
+- Retry schedule remains centralized here.
 
 ## Application Services
-
 ### ProviderAccountResolver
-- Encapsulates account fallback policy.
-- Prevents account-selection logic from leaking into use cases.
+- Encapsulates account fallback order and validation.
 
 ### SenderRegistry
-- Maps provider key to outbound sender implementation.
-- Centralizes unsupported-provider handling.
+- Central lookup for provider key -> sender implementation.
 
 ### EventMessageMapper
-- Converts event/channel context into deterministic message text.
-- Keeps formatting logic out of use case orchestration.
+- Produces deterministic text payloads for delivery jobs.
 
-## Legacy Application Flow
-`ProcessEventUseCase` in `src/application/use_cases` loads active channels and enqueues Celery tasks.
+## Compatibility Application Behavior
+Legacy `ProcessEventUseCase` fans out channels into Celery tasks.
 
-Legacy flow also uses `RateLimitResolver` in `src/application/services` during task execution to choose scoped throttling policy:
-1. Group policy from `channel.group`.
-2. Provider policy from `channel.provider`.
-3. Tenant policy from `event.workspace_id`.
-4. Global fallback policy.
-
-Use this flow only for compatibility behavior; new orchestration should be added to modular notifications application layer.
+Associated compatibility services (for example rate-limit resolution) remain valid only for `/events` behavior and should not absorb new primary architecture work.

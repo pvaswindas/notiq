@@ -1,77 +1,66 @@
 # Dependency Rules
 
-## Dependency Direction (Primary Notifications Module)
-Allowed direction:
+## Allowed Dependency Direction
+Primary modular path:
+- `bootstrap -> application`
+- `adapters(inbound/outbound) -> application or ports`
+- `application -> domain + ports`
+- `infrastructure -> ports (+ local infra utilities)`
 
-`adapters + infrastructure + bootstrap -> application -> domain`
+Compatibility path follows the same inward rule even if package names differ.
 
-`application -> ports`
-
-`infrastructure/adapters -> ports`
-
-## Layer DO and DON'T Rules
+## Layer Capability Rules
 ### Domain
-DO:
-- Model business entities and invariants.
-- Keep logic deterministic where possible.
+CAN:
+- Define entities, value objects, and pure policy services.
+- Validate invariants and state transitions.
 
-DON'T:
-- Import FastAPI, SQLAlchemy, Celery, Redis, or provider SDKs.
-- Perform network or database operations.
+MUST NOT:
+- Import FastAPI, Celery, SQLAlchemy, Redis clients, or provider SDKs.
+- Execute I/O directly.
 
 ### Application
-DO:
-- Orchestrate workflows across domain and ports.
-- Decide sequencing for validation, dedupe, and state transitions.
+CAN:
+- Coordinate domain behavior and call ports.
+- Decide validation, routing, dedupe, and retry order.
 
-DON'T:
-- Create SQL queries or call HTTP/provider SDKs directly.
-- Depend on concrete infrastructure classes.
+MUST NOT:
+- Instantiate concrete infrastructure adapters.
+- Write SQL or call provider HTTP clients directly.
 
 ### Ports
-DO:
-- Declare explicit contracts and semantics.
-- Use domain/application language in method signatures.
+CAN:
+- Describe required behaviors and method contracts.
 
-DON'T:
-- Include technology-specific behavior or side effects.
+MUST NOT:
+- Depend on infrastructure frameworks.
+- Hide side effects behind ambiguous method names.
 
 ### Adapters
-DO:
-- Translate protocol payloads to/from use-case inputs and outputs.
-- Keep request/response mapping and provider I/O details localized.
+CAN:
+- Map transport payloads to commands/entities.
+- Convert infrastructure/provider errors to adapter-level outcomes.
 
-DON'T:
-- Implement business policy sequencing that belongs in use cases.
+MUST NOT:
+- Hold core business branching that belongs in use cases.
 
 ### Infrastructure
-DO:
-- Implement ports and guarantee technical concerns (transactions, locking, retries at transport layer).
-- Keep persistence mapping and runtime details isolated.
+CAN:
+- Implement ports with transactions, locks, retries, and connection concerns.
 
-DON'T:
-- Re-encode domain policy decisions.
-- Leak infrastructure data models into domain entities.
+MUST NOT:
+- Introduce domain policy forks that disagree with application rules.
+- Leak ORM model objects into domain/application APIs.
 
 ### Bootstrap
-DO:
-- Wire dependencies in one composition root.
-- Keep runtime startup concerns explicit.
+CAN:
+- Assemble concrete dependencies and configure runtime.
 
-DON'T:
-- Host business rules or feature logic.
+MUST NOT:
+- Host feature/business logic.
 
-## Legacy Path Rule
-Legacy `src/application` + `src/domain` + Celery-task pipeline is compatibility code. New dependencies should not be added there unless required for backward compatibility.
-
-For compatibility-only additions (for example legacy throttling), keep the same inward dependency rule:
-- Legacy application services may depend on legacy domain models and port interfaces.
-- Legacy tasks may compose concrete adapters but must not absorb policy resolution logic.
-- Redis or other backend specifics must stay in infrastructure adapters behind ports.
-
-## Review Checklist For PRs
-1. Does any inward layer import outward technology packages?
-2. Does a use case reference concrete adapter/infrastructure classes?
-3. Does an adapter contain business policy branching that belongs in application?
-4. Are new provider/storage additions implemented behind ports?
-5. Is runtime wiring confined to bootstrap/container files?
+## PR Review Guardrails
+1. Verify no inward layer imports outward technologies.
+2. Verify use cases reference interfaces, not concrete adapters.
+3. Verify adapters remain mapping layers, not policy engines.
+4. Verify new integration behavior is documented in `docs/`.

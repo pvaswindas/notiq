@@ -1,72 +1,67 @@
 # Design Principles
 
-## Reliability Over Immediate Delivery
-### Why
-Provider APIs are inherently unreliable and should not control API response latency.
+## 1. Accept Fast, Deliver Asynchronously
+WHY:
+- Provider calls are unreliable and high-latency.
 
-### How
-- API path persists work as delivery jobs.
-- Worker execution handles retries and terminal failure transitions.
+HOW:
+- Intake endpoints acknowledge acceptance after orchestration/persistence steps, not after provider delivery.
 
-### Constraint
-`200 OK` means "accepted for processing", not "delivered".
+CONSTRAINT:
+- Client-facing success means queued/accepted, not guaranteed external delivery.
 
-## Deterministic Idempotency
-### Why
-Upstream callers retry requests; duplicate sends must be prevented per destination.
+## 2. Deterministic Idempotency
+WHY:
+- Upstream retries are normal; duplicates must be controlled.
 
-### How
-- Event fingerprint: deterministic hash of event context.
-- Channel fingerprint: deterministic hash of `(event_fingerprint, channel_id)`.
-- Atomic claim in `idempotency_keys` table blocks duplicate job creation.
+HOW:
+- Fingerprint event context and channel scope.
+- Claim dedupe keys atomically before creating delivery work.
 
-### Constraint
-Payload canonicalization and fingerprint inputs must remain stable across deployments.
+CONSTRAINT:
+- Fingerprint inputs and canonicalization must remain stable across deployments.
 
-## Tenant Isolation
-### Why
-Workspaces must never leak channels, credentials, or job processing context across tenants.
+## 3. Strict Workspace Isolation
+WHY:
+- Notiq is multi-tenant and must prevent cross-tenant leakage.
 
-### How
-- Workspace-scoped queries for channel resolution.
-- Workspace-bound job and provider-account relationships.
-- Workspace context carried through job execution and logs.
+HOW:
+- Workspace-scoped repository access and auth context checks.
+- Workspace ownership checks on API-key and channel operations.
 
-### Constraint
-All new routing/persistence features must preserve workspace boundaries by default.
+CONSTRAINT:
+- New features default to workspace-scoped behavior unless explicitly global and justified.
 
-## Replaceable Integrations
-### Why
-Provider and storage technology choices evolve over time.
+## 4. Replaceable Integrations
+WHY:
+- Provider and persistence technology choices evolve.
 
-### How
-- Use cases depend on ports.
-- Concrete adapters are selected in container wiring.
-- Domain entities remain persistence and framework agnostic.
+HOW:
+- Use-case logic targets ports.
+- Adapter implementation choice stays in bootstrap/container wiring.
 
-### Constraint
-Integration changes should be achievable without modifying domain policy code.
+CONSTRAINT:
+- Changing an integration should not require domain model rewrites.
 
-## Explicit Failure Semantics
-### Why
-Operational teams need predictable lifecycle behavior under failure.
+## 5. Explicit Failure Semantics
+WHY:
+- Operators need predictable runtime behavior under errors.
 
-### How
-- Status model: `PENDING`, `PROCESSING`, `SUCCESS`, `FAILED`.
-- Transient errors retry with exponential backoff.
-- Permanent errors move to terminal failure state with captured error context.
+HOW:
+- Delivery state machine (`PENDING`, `PROCESSING`, `SUCCESS`, `FAILED`).
+- Retry classification for transient failures.
+- Structured error capture for terminal failures.
 
-### Constraint
-Any new status or retry policy must include migration and documentation updates.
+CONSTRAINT:
+- Any retry/status change requires docs + migration/operational impact review.
 
-## Bounded Throughput Protection (Legacy Compatibility)
-### Why
-Legacy Celery fan-out can burst provider traffic and create avoidable throttling incidents without local controls.
+## 6. Compatibility Without Architectural Regression
+WHY:
+- Existing clients still depend on legacy endpoints.
 
-### How
-- Resolve effective policy in order: group -> provider -> tenant -> global.
-- Enforce counters atomically in Redis using fixed-window semantics.
-- On throttle deny, release idempotency key and requeue task with short delay.
+HOW:
+- Keep compatibility behavior isolated and documented.
+- Avoid growing legacy paths for net-new architecture work.
 
-### Constraint
-Throttle controls are compatibility safeguards for `/events`; primary architecture evolution should continue in modular notifications flow.
+CONSTRAINT:
+- Compatibility changes must preserve current contract and idempotency safety.

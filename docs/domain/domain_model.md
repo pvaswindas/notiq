@@ -1,88 +1,82 @@
 # Domain Model
 
-## Domain Scope
-The primary domain model for production notification orchestration lives under `src/modules/notifications/domain`.
+## Scope
+The canonical production domain for notifications lives under `src/modules/notifications/domain`.
 
-A separate legacy event model exists under `src/domain` for compatibility ingestion (`POST /events`).
+Compatibility domain objects exist under `src/domain` and are maintained only for legacy route/task behavior.
 
-## Entities (Primary Notifications Domain)
+## Primary Entities
 
 ### Workspace
 Why it exists:
-- Defines tenant boundary and activation gate for notification intake.
+- Defines tenant boundary and activation gate.
 
 What problem it solves:
-- Prevents cross-tenant routing and allows tenant lifecycle control (`is_active`).
+- Ensures all routing and execution are scoped to a tenant context.
 
 How it interacts:
-- Parent context for channels and delivery jobs.
-- Checked by `SendNotificationUseCase` before any queueing.
+- Parent context for channels, provider-account defaults, and delivery jobs.
 
 ### Channel
 Why it exists:
-- Represents a notification route from workspace to provider destination.
+- Represents a delivery route configuration owned by a workspace.
 
 What problem it solves:
-- Allows configurable fan-out per workspace and destination.
+- Separates destination/provider configuration from event payloads.
 
 How it interacts:
-- Selected during intake routing.
-- Supplies `provider_key`, destination, and optional explicit account.
-- One channel can generate many delivery jobs over time.
+- Selected during fan-out.
+- Supplies provider key, destination, and optional explicit provider account.
 
 ### ProviderAccount
 Why it exists:
-- Represents credential reference for outbound provider calls.
+- Encapsulates provider credential ownership and activation status.
 
 What problem it solves:
-- Separates credential ownership and default resolution from channel/event payloads.
+- Enables credential rotation and defaulting without mutating channels/events.
 
 How it interacts:
 - Resolved per channel by `ProviderAccountResolver`.
-- Used by sender adapters during delivery execution.
-- Can be workspace-scoped default or system default fallback.
+- Used during send execution by outbound sender adapters.
 
 ### Event
 Why it exists:
-- Captures immutable event context from intake request.
+- Holds immutable event identity and payload used by intake orchestration.
 
 What problem it solves:
-- Provides stable input for message mapping and idempotency fingerprinting.
+- Provides stable input for message mapping and fingerprint computation.
 
 How it interacts:
-- Input to idempotency service and message mapper.
-- Combined with channel to create delivery jobs.
+- Combined with channels to generate channel-scoped delivery work.
 
 ### DeliveryJob
 Why it exists:
-- Durable executable unit for asynchronous processing.
+- Durable executable unit for asynchronous provider delivery.
 
 What problem it solves:
-- Decouples API acceptance from external provider latency and failure.
+- Decouples API acceptance from provider latency and failure modes.
 
 How it interacts:
-- Persisted by intake use case.
-- Claimed and transitioned by worker processing use case.
-- Tracks retries, lease ownership, and terminal outcome.
+- Created in intake use case.
+- Claimed and transitioned by processing use case.
+- Tracks retries, lease ownership, and final state.
 
-## Relationships (Primary)
+## Relationships
 - `Workspace 1 -> N Channel`
 - `Workspace 1 -> N DeliveryJob`
 - `Channel 1 -> N DeliveryJob`
-- `ProviderAccount 1 -> N DeliveryJob` (resolved reference)
-- `ProviderAccount 0..1 <- Channel` (optional explicit account)
+- `ProviderAccount 1 -> N DeliveryJob`
+- `ProviderAccount 0..1 <- Channel` (optional explicit binding)
 
-## Value Objects and Services
-- `EventFingerprint`: typed wrapper around deterministic event hash.
-- `ProviderKey`: normalized provider identifier value object.
-- `IdempotencyService`: computes deterministic event and channel fingerprints.
-- `RateLimitService`: policy utility present in domain but not currently applied in primary intake flow.
+## Value Objects and Domain Services
+- `ProviderKey`: normalizes provider identity.
+- `EventFingerprint`: typed representation of deterministic event hash.
+- `IdempotencyService`: creates event and channel fingerprints.
 
-## Legacy Domain (Compatibility)
-Legacy entities `src/domain/entities/event.py` and `src/domain/entities/channel.py` are used by `/events` ingestion and Celery task routing.
+## Compatibility Domain Notes
+Legacy `/events` flow uses:
+- `src/domain/entities/event.py`
+- `src/domain/entities/channel.py`
+- `src/domain/rate_limit/entities.py`
 
-Legacy compatibility domain also includes `src/domain/rate_limit/entities.py`:
-- `RateLimitConfig`: immutable policy value (`scope`, `key`, `limit`, `window_seconds`) used by resolver + limiter collaboration.
-- `Channel.group`: optional grouping key that enables coarse throttling buckets for high-priority/low-priority traffic segregation.
-
-These models are intentionally minimal and should not be used for new primary notification features.
+These are compatibility models and must not become the default modeling target for new primary notification capabilities.

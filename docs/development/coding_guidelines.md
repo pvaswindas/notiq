@@ -1,50 +1,44 @@
 # Coding Guidelines
 
-## Core Rules
-- Keep domain entities immutable and framework-agnostic.
-- Keep application use cases focused on orchestration and decision order.
-- Depend on ports in use cases; instantiate adapters only in bootstrap.
-- Keep idempotency behavior deterministic and explicit.
-- Document every architectural behavior change in `docs/` in the same PR.
-- In legacy task flow, keep throttle policy resolution and enforcement behind dedicated service/ports.
+## Architecture-First Rules
+- Keep domain models immutable and framework-agnostic.
+- Keep use cases focused on orchestration, not I/O implementation.
+- Depend on ports in application logic; instantiate concrete adapters in bootstrap.
+- Preserve deterministic idempotency inputs and behavior.
+- Update docs in the same change as behavior changes.
 
-## Layer DO and DON'T
+## Layer Do/Don't Summary
 ### Domain
 DO:
-- Encode invariants and domain language.
+- Encode domain language and invariants.
 
 DON'T:
-- Import framework, ORM, or SDK packages.
+- Import framework or infrastructure dependencies.
 
 ### Application
 DO:
-- Coordinate domain + ports.
+- Coordinate decision order and lifecycle transitions.
 
 DON'T:
-- Implement SQL, HTTP handlers, or provider SDK calls.
+- Perform SQL, HTTP handler logic, or SDK client calls.
 
 ### Adapters/Infrastructure
 DO:
-- Implement protocol and I/O details.
+- Handle transport, serialization, persistence, and integration I/O.
 
 DON'T:
-- Recreate business policy branching from use cases.
+- Re-implement core business policies.
 
-## Documentation Expectations
-- Class docstrings must include purpose, responsibilities, architectural role, and key constraints.
-- Function/method docstrings must include behavior, parameters, return value, flow notes, and edge cases.
-- API docs must match real request/response behavior.
-- Flow docs must explain success and failure branches.
+## Docstring Standard
+- Class docstrings must cover: purpose, responsibilities, architectural role, constraints.
+- Function/method docstrings must cover: behavior, args, return, internal flow, edge cases.
 
-## Testing and Validation Expectations
-- Validate syntax (`python3 -m compileall -q src`).
-- Validate migrations and schema alignment when persistence changes.
-- Validate endpoint behavior with smoke calls for both ingestion endpoints.
+## Documentation Standard
+- API docs are per-endpoint and must reflect actual code paths.
+- Flow docs must explain routing decisions and failure behavior.
+- Architecture docs must state CAN and MUST NOT rules per layer.
 
-## Compatibility Guidance
-Legacy `src/application` / `src/domain` flow is maintained for compatibility. New primary features should be built in `src/modules/notifications` unless compatibility constraints require otherwise.
-
-For compatibility changes that add throughput controls:
-- Do not hard-code provider-specific throttling branches inside task functions.
-- Prefer scoped policy resolution (`group -> provider -> tenant -> global`) in one service.
-- Keep retry safety by releasing idempotency claims before requeue or raised failure.
+## Validation Expectations
+- Run syntax checks (`python3 -m compileall -q src`) after code edits.
+- Verify modified endpoints and auth behavior against controller code.
+- Verify docs do not contradict runtime behavior.

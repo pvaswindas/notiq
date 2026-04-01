@@ -2,70 +2,52 @@
 
 ## Database Design
 
-### Core Tables
-- `workspaces`: tenant identity and activation state.
-- `provider_accounts`: provider credential references and default scopes.
-- `channels`: workspace routing destinations and provider bindings.
-- `delivery_jobs`: durable queue + execution lifecycle state.
-- `idempotency_keys`: claimed dedupe keys for duplicate suppression.
+### Primary Tables
+- `workspaces`: tenant identity + activation state.
+- `channels`: workspace routing configuration.
+- `provider_accounts`: provider credentials references and default scopes.
+- `delivery_jobs`: queue + execution lifecycle data.
+- `idempotency_keys`: dedupe claims.
+- `api_keys`: bearer-key authentication records.
 
-### Critical Constraints and Indexes
-- Unique `delivery_jobs.dedupe_key` ensures one job per dedupe fingerprint.
-- Worker-claim indexes support due-job scans (`status`, `next_retry_at`, `processing_expires_at`).
-- Foreign keys enforce workspace/channel/account integrity.
+### Key Integrity and Performance Concerns
+- Unique dedupe key behavior prevents duplicate channel work creation.
+- Claim paths rely on indexes for due-job scans and lease recovery.
+- FK constraints preserve tenant/resource consistency.
 
-Migration source: `alembic/versions/0001_init.py`.
+Schema evolution is managed via Alembic migrations in `alembic/versions`.
 
-## Queue and Job Processing Systems
+## Queue and Job Processing
 
-### Primary Queue Model (Postgres-backed)
-- Queue is represented by `delivery_jobs` rows in `PENDING` status.
-- Workers lease jobs by atomically updating claim fields.
-- `FOR UPDATE SKIP LOCKED` enables safe multi-worker concurrency.
+### Primary Processing Model
+- Delivery queue is represented by rows in `delivery_jobs`.
+- Workers claim with lease semantics and process asynchronously.
+- Concurrency safety relies on transactional row locking.
 
-### Legacy Queue Model (Celery)
-- `/events` compatibility path enqueues Celery tasks.
-- Broker/backend configured via Redis in `src/infrastructure/celery_app.py`.
-- Task implementation located at `src/adapters/tasks/send_notification_task.py`.
+### Compatibility Processing Model
+- `/events` enqueues Celery tasks.
+- Redis provides broker/backend transport.
+- Task-level idempotency and throttling controls are Redis-backed.
 
 ## Worker Behavior
-
-### Primary Worker Class
-`NotificationWorker`:
-- Polls claimed batches at configured interval.
-- Delegates transition logic to `ProcessDeliveryJobUseCase`.
-- Logs unexpected exceptions per job context.
-
-### Runtime Status
-Primary worker class exists and is production-ready in code, but default local startup path uses API process + Celery worker service in `docker-compose.yml`.
+- Modular flow execution logic is in `ProcessDeliveryJobUseCase` and worker orchestration classes.
+- Compatibility worker runtime is Celery-based (`src.infrastructure.celery_app`).
+- Deprecated worker entrypoints remain only to fail-fast with guidance.
 
 ## External Integrations
-
-### Provider Integrations (Primary)
-- Telegram sender adapter
-- Email sender adapter
-
-Both adapters consume `ProviderAccount.credentials_ref` and are resolved by provider key through sender registry.
-
-### Redis Integrations (Legacy)
-- Celery broker/backend transport.
-- Redis idempotency store used by legacy Celery task flow.
-- Redis Lua-based fixed-window limiter used by legacy Celery task throttling.
-
-### Legacy Config Integration
-- `InMemoryRateLimitConfigRepository` provides seeded config layers (group, provider, tenant, global).
-- Config lookup is intentionally isolated behind `RateLimitConfigRepositoryPort` for future migration to persistent config stores.
+- Provider adapters: Telegram and Email senders.
+- Database adapters: SQLAlchemy async repositories for domain and auth data.
+- Redis adapters: Celery transport, compatibility idempotency store, compatibility rate limiter.
 
 ## Deployment Setup
 
 ### Docker Compose Services
-- `postgres`: Postgres 16 with persistent volume and healthcheck.
-- `redis`: Redis 7 for Celery broker/backend and legacy idempotency.
-- `app`: FastAPI process (`python -m src.run`).
-- `worker`: Celery worker process (`celery -A src.infrastructure.celery_app.celery_app worker`).
+- `postgres`
+- `redis`
+- `app` (FastAPI runtime)
+- `worker` (Celery worker runtime)
 
 ### Environment Variables
-Key variables from `.env.example` / `settings.py`:
 - `DATABASE_URL`
 - `REDIS_URL`
 - `APP_MODE`
@@ -76,10 +58,7 @@ Key variables from `.env.example` / `settings.py`:
 - `MAX_EVENTS_PER_MINUTE`
 - `IDEMPOTENCY_TTL_SECONDS`
 
-Rate-limit policy values in current legacy flow are seeded in code (`InMemoryRateLimitConfigRepository`) rather than loaded from env.
-
-## Infrastructure Extension Rules
-1. Preserve transaction boundaries and atomicity for claim/update flows.
-2. Do not bypass repository ports from use cases.
-3. Keep schema and migration docs synchronized with model changes.
-4. Document operational impact for any retry, lease, or index change.
+## Extension Rules
+1. Keep transaction and locking guarantees intact when modifying claim/update logic.
+2. Keep all infrastructure behavior behind ports or explicit adapter boundaries.
+3. Document schema/index, retry, and operational changes in docs + migrations.
