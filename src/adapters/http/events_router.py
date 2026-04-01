@@ -1,8 +1,9 @@
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.adapters.http.dependencies.auth import AuthContext, require_auth
 from src.application.use_cases.process_event_use_case import ProcessEventUseCase
 from src.domain.entities.event import Event
 
@@ -14,11 +15,10 @@ class EventIngestionRequest(BaseModel):
     - Capture minimal event payload required by compatibility `/events` path.
 
     Constraints:
-    - `workspace_id` and `event_type` must be non-empty.
+    - `event_type` must be non-empty.
     - `payload` remains schema-flexible for backward compatibility.
     """
 
-    workspace_id: str = Field(min_length=1)
     event_type: str = Field(min_length=1)
     payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -70,7 +70,10 @@ class EventRouterFactory:
         router = APIRouter(tags=["events"])
 
         @router.post("/events", response_model=EventIngestionResponse)
-        async def ingest_event(request: EventIngestionRequest) -> EventIngestionResponse:
+        async def ingest_event(
+            request: EventIngestionRequest,
+            auth: AuthContext = Depends(require_auth),
+        ) -> EventIngestionResponse:
             """Accept a legacy event and enqueue per-channel tasks.
 
             Args:
@@ -89,7 +92,7 @@ class EventRouterFactory:
             """
 
             event = Event(
-                workspace_id=request.workspace_id,
+                workspace_id=auth.workspace_id,
                 event_type=request.event_type,
                 payload=request.payload,
             )
