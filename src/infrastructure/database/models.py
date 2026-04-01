@@ -163,3 +163,24 @@ class AdminRoleModel(Base):
     __table_args__ = (
         Index("ix_admin_roles_role_id", "role_id"),
     )
+
+
+class AuditLogModel(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    resource: Mapped[str] = mapped_column(String(128), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    before: Mapped[dict[str, Any] | None] = mapped_column("before", JSONB, nullable=True)
+    after: Mapped[dict[str, Any] | None] = mapped_column("after", JSONB, nullable=True)
+    audit_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_audit_logs_created_at", "created_at"),
+        Index("ix_audit_logs_actor_created_at", "actor_id", "created_at"),
+        Index("ix_audit_logs_resource_action_created_at", "resource", "action", "created_at"),
+        Index("ix_audit_logs_resource_id_created_at", "resource", "resource_id", "created_at"),
+    )

@@ -7,6 +7,7 @@ class Workspace:
     id: str
     name: str
     created_at: datetime
+    is_active: bool = True
 
     def __post_init__(self) -> None:
         if not self.id:
