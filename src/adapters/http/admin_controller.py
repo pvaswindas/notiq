@@ -19,6 +19,12 @@ from src.infrastructure.database.repositories.postgres_role_repository import Po
 
 
 class LoginRequest(BaseModel):
+    """Inbound payload for admin sign-in.
+
+    Purpose:
+    - Capture credential input required to mint an admin access token.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     email: str = Field(min_length=3, max_length=255)
@@ -26,6 +32,12 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
+    """Outbound contract returned after successful admin authentication.
+
+    Architectural role:
+    - Stable transport DTO containing token metadata and resolved role names.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     access_token: str
@@ -36,6 +48,8 @@ class LoginResponse(BaseModel):
 
 
 class CreateAdminRequest(BaseModel):
+    """Inbound payload for creating a new administrative identity."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=255)
@@ -45,6 +59,8 @@ class CreateAdminRequest(BaseModel):
 
 
 class AdminResponse(BaseModel):
+    """Common outbound projection for admin resources in management endpoints."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -56,6 +72,8 @@ class AdminResponse(BaseModel):
 
 
 class AdminProfileResponse(BaseModel):
+    """Outbound projection for `/admin/me` including effective permissions."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -68,24 +86,32 @@ class AdminProfileResponse(BaseModel):
 
 
 class AssignRoleRequest(BaseModel):
+    """Inbound payload for assigning one role to an admin."""
+
     model_config = ConfigDict(extra="forbid")
 
     role_id: str = Field(min_length=1)
 
 
 class RoleRequest(BaseModel):
+    """Inbound payload for role creation requests."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=128)
 
 
 class PermissionRequest(BaseModel):
+    """Inbound payload for permission creation requests."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=128)
 
 
 class RoleResponse(BaseModel):
+    """Outbound representation of an RBAC role resource."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -94,6 +120,8 @@ class RoleResponse(BaseModel):
 
 
 class PermissionResponse(BaseModel):
+    """Outbound representation of an RBAC permission resource."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -102,13 +130,30 @@ class PermissionResponse(BaseModel):
 
 
 class AssignPermissionRequest(BaseModel):
+    """Inbound payload for assigning one permission to a role."""
+
     model_config = ConfigDict(extra="forbid")
 
     permission_id: str = Field(min_length=1)
 
 
 class AdminControllerFactory:
+    """Compose admin authentication and RBAC HTTP endpoints.
+
+    Responsibilities:
+    - Validate protocol-level request contracts.
+    - Enforce authentication and permission dependencies.
+    - Delegate business decisions to admin use cases and services.
+    """
+
     def __init__(self) -> None:
+        """Initialize concrete repositories, auth services, and admin use cases.
+
+        Important:
+        - This is a compatibility composition point; domain policy must remain in
+          application services/use cases rather than route handlers.
+        """
+
         self._admin_repository = PostgresAdminRepository()
         self._role_repository = PostgresRoleRepository()
         self._permission_repository = PostgresPermissionRepository()
@@ -129,10 +174,31 @@ class AdminControllerFactory:
         )
 
     def build(self) -> APIRouter:
+        """Build and return the `/admin` router with RBAC-aware endpoints.
+
+        Returns:
+            APIRouter: Router exposing login, profile, admin, role, and
+                permission management routes.
+        """
+
         router = APIRouter(prefix="/admin", tags=["admin"])
 
         @router.post("/auth/login", response_model=LoginResponse)
         async def login(payload: LoginRequest) -> LoginResponse:
+            """Authenticate an admin and return a signed access token.
+
+            Args:
+                payload: Login credentials payload.
+
+            Returns:
+                LoginResponse: Access token details and caller identity metadata.
+
+            Internal flow:
+            - Normalize and validate credentials in login use case/service.
+            - Resolve assigned role names.
+            - Return token expiry and role claims for downstream authorization.
+            """
+
             result = await self._login_admin_use_case.execute(
                 LoginAdminInput(email=payload.email, password=payload.password)
             )
@@ -146,6 +212,18 @@ class AdminControllerFactory:
 
         @router.get("/me", response_model=AdminProfileResponse)
         async def me(auth: Annotated[AdminAuthContext, Depends(require_admin_auth)]) -> AdminProfileResponse:
+            """Return profile details for the authenticated admin principal.
+
+            Args:
+                auth: Decoded admin auth context from JWT dependency.
+
+            Returns:
+                AdminProfileResponse: Admin identity plus roles and permissions.
+
+            Edge cases:
+            - Missing admin record after token decode returns `404`.
+            """
+
             admin = await self._admin_repository.get_by_id(auth.admin_id)
             if admin is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="admin not found")
@@ -169,6 +247,19 @@ class AdminControllerFactory:
             dependencies=[Depends(require_permission("manage_admins"))],
         )
         async def create_admin(payload: CreateAdminRequest) -> AdminResponse:
+            """Create a new admin and optionally assign initial roles.
+
+            Args:
+                payload: New admin identity plus optional role ids.
+
+            Returns:
+                AdminResponse: Created admin with resolved role names.
+
+            Edge cases:
+            - Duplicate email maps to `409`.
+            - Unknown role ids map to `404` from use case.
+            """
+
             try:
                 admin = await self._create_admin_use_case.execute(
                     CreateAdminInput(
@@ -197,6 +288,16 @@ class AdminControllerFactory:
             dependencies=[Depends(require_permission("manage_admins"))],
         )
         async def list_admins() -> list[AdminResponse]:
+            """List all admins including their role memberships.
+
+            Returns:
+                list[AdminResponse]: Admin records enriched with role names.
+
+            Internal flow:
+            - Load admin records.
+            - Resolve roles per admin for a management-friendly view.
+            """
+
             admins = await self._admin_repository.list_all()
             response: list[AdminResponse] = []
             for admin in admins:
@@ -219,6 +320,19 @@ class AdminControllerFactory:
             dependencies=[Depends(require_permission("manage_admins"))],
         )
         async def assign_role(admin_id: str, payload: AssignRoleRequest) -> None:
+            """Assign a role to an admin.
+
+            Args:
+                admin_id: Target admin identifier.
+                payload: Role assignment payload.
+
+            Returns:
+                None: Route returns HTTP `204 No Content` on success.
+
+            Edge cases:
+            - Unknown admin/role ids map to `404`.
+            """
+
             await self._assign_role_use_case.execute(AssignRoleInput(admin_id=admin_id, role_id=payload.role_id))
 
         @router.patch(
@@ -227,6 +341,18 @@ class AdminControllerFactory:
             dependencies=[Depends(require_permission("manage_admins"))],
         )
         async def disable_admin(admin_id: str) -> AdminResponse:
+            """Disable an admin account and return the updated representation.
+
+            Args:
+                admin_id: Target admin identifier.
+
+            Returns:
+                AdminResponse: Updated admin state with `is_active=false`.
+
+            Edge cases:
+            - Missing admin returns `404`.
+            """
+
             admin = await self._admin_repository.set_active(admin_id, False)
             if admin is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="admin not found")
@@ -248,6 +374,18 @@ class AdminControllerFactory:
             dependencies=[Depends(require_permission("manage_roles"))],
         )
         async def create_role(payload: RoleRequest) -> RoleResponse:
+            """Create a new RBAC role.
+
+            Args:
+                payload: Role creation request.
+
+            Returns:
+                RoleResponse: Persisted role metadata.
+
+            Edge cases:
+            - Blank/duplicate names map to `400` or `409`.
+            """
+
             name = payload.name.strip()
             if not name:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
@@ -268,6 +406,12 @@ class AdminControllerFactory:
             dependencies=[Depends(require_admin_auth)],
         )
         async def list_roles() -> list[RoleResponse]:
+            """List all roles available for RBAC assignment.
+
+            Returns:
+                list[RoleResponse]: Role records in repository order.
+            """
+
             roles = await self._role_repository.list_all()
             return [RoleResponse(id=role.id, name=role.name, created_at=role.created_at.isoformat()) for role in roles]
 
@@ -278,6 +422,18 @@ class AdminControllerFactory:
             dependencies=[Depends(require_permission("manage_permissions"))],
         )
         async def create_permission(payload: PermissionRequest) -> PermissionResponse:
+            """Create a new RBAC permission.
+
+            Args:
+                payload: Permission creation request.
+
+            Returns:
+                PermissionResponse: Persisted permission metadata.
+
+            Edge cases:
+            - Blank/duplicate names map to `400` or `409`.
+            """
+
             name = payload.name.strip()
             if not name:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="name is required")
@@ -302,6 +458,12 @@ class AdminControllerFactory:
             dependencies=[Depends(require_admin_auth)],
         )
         async def list_permissions() -> list[PermissionResponse]:
+            """List all known RBAC permissions.
+
+            Returns:
+                list[PermissionResponse]: Permission records in repository order.
+            """
+
             permissions = await self._permission_repository.list_all()
             return [
                 PermissionResponse(
@@ -318,6 +480,21 @@ class AdminControllerFactory:
             dependencies=[Depends(require_permission("manage_roles"))],
         )
         async def assign_permission(role_id: str, payload: AssignPermissionRequest) -> None:
+            """Assign a permission to a role.
+
+            Args:
+                role_id: Target role identifier.
+                payload: Permission assignment payload.
+
+            Returns:
+                None: Route returns HTTP `204 No Content` on success.
+
+            Internal flow:
+            - Validate role existence.
+            - Validate permission existence.
+            - Persist role-permission link.
+            """
+
             role = await self._role_repository.get_by_id(role_id)
             if role is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
@@ -334,6 +511,18 @@ class AdminControllerFactory:
             dependencies=[Depends(require_admin_auth)],
         )
         async def list_role_permissions(role_id: str) -> list[PermissionResponse]:
+            """List permissions assigned to one role.
+
+            Args:
+                role_id: Target role identifier.
+
+            Returns:
+                list[PermissionResponse]: Permissions mapped to role.
+
+            Edge cases:
+            - Missing role returns `404`.
+            """
+
             role = await self._role_repository.get_by_id(role_id)
             if role is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="role not found")
