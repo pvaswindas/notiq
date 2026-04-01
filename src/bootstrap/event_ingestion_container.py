@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
 from src.application.use_cases.process_event_use_case import ProcessEventUseCase
+from src.infrastructure.database.repositories.postgres_channel_repository import PostgresChannelRepository
 from src.infrastructure.queue.celery_queue import CeleryEventQueue
-from src.infrastructure.repositories.in_memory_channel_repository import InMemoryChannelRepository
 
 
 @dataclass(slots=True)
@@ -32,7 +32,7 @@ class EventIngestionContainerFactory:
           modular notifications container wiring.
         """
 
-        channel_repository = InMemoryChannelRepository(channels=[])
+        channel_repository = PostgresChannelRepository()
         event_queue = CeleryEventQueue()
         process_event_use_case = ProcessEventUseCase(
             channel_repository=channel_repository,

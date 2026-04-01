@@ -3,15 +3,16 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from src.infrastructure.db.base import Base
+from src.infrastructure.database.models import Base as DatabaseBase
 from src.infrastructure.persistence.postgres import models  # noqa: F401
+from src.infrastructure.db.base import Base
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = Base.metadata
+target_metadata = [Base.metadata, DatabaseBase.metadata]
 
 
 def run_migrations_offline() -> None:
