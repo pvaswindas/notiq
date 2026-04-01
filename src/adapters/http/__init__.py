@@ -1,3 +1,5 @@
+from src.adapters.http.channel_controller import ChannelControllerFactory
 from src.adapters.http.events_router import EventRouterFactory
+from src.adapters.http.workspace_controller import WorkspaceControllerFactory
 
-__all__ = ["EventRouterFactory"]
+__all__ = ["EventRouterFactory", "WorkspaceControllerFactory", "ChannelControllerFactory"]
