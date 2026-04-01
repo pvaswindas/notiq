@@ -27,6 +27,8 @@ class RateLimitConfig:
     key: str
     limit: int
     window_seconds: int
+    id: str | None = None
+    workspace_id: str | None = None
 
     def __post_init__(self) -> None:
         """Validate policy invariants to keep limiter behavior well-defined.
