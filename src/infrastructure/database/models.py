@@ -90,3 +90,76 @@ class ApiKeyModel(Base):
         Index("ix_api_keys_workspace_id", "workspace_id"),
         Index("ux_api_keys_key_hash", "key_hash", unique=True),
     )
+
+
+class AdminModel(Base):
+    __tablename__ = "admins"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ux_admins_email", "email", unique=True),
+    )
+
+
+class RoleModel(Base):
+    __tablename__ = "roles"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ux_roles_name", "name", unique=True),
+    )
+
+
+class PermissionModel(Base):
+    __tablename__ = "permissions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ux_permissions_name", "name", unique=True),
+    )
+
+
+class RolePermissionModel(Base):
+    __tablename__ = "role_permissions"
+
+    role_id: Mapped[str] = mapped_column(
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    permission_id: Mapped[str] = mapped_column(
+        ForeignKey("permissions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    __table_args__ = (
+        Index("ix_role_permissions_permission_id", "permission_id"),
+    )
+
+
+class AdminRoleModel(Base):
+    __tablename__ = "admin_roles"
+
+    admin_id: Mapped[str] = mapped_column(
+        ForeignKey("admins.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    role_id: Mapped[str] = mapped_column(
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    __table_args__ = (
+        Index("ix_admin_roles_role_id", "role_id"),
+    )
