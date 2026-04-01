@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     worker_lease_seconds: int = Field(default=30, alias="WORKER_LEASE_SECONDS")
     max_events_per_minute: int = Field(default=120, alias="MAX_EVENTS_PER_MINUTE")
     idempotency_ttl_seconds: int = Field(default=3600, alias="IDEMPOTENCY_TTL_SECONDS")
+    admin_jwt_secret: str = Field(default="change-me-in-production", alias="ADMIN_JWT_SECRET")
+    admin_jwt_algorithm: str = Field(default="HS256", alias="ADMIN_JWT_ALGORITHM")
+    admin_jwt_exp_minutes: int = Field(default=60, alias="ADMIN_JWT_EXP_MINUTES")
 
 
 settings = Settings()
