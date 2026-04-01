@@ -8,12 +8,16 @@ from src.infrastructure.database.repositories.postgres_workspace_repository impo
 
 
 class CreateApiKeyRequest(BaseModel):
+    """Inbound payload for creating a new workspace API key label."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=128)
 
 
 class CreateApiKeyResponse(BaseModel):
+    """Outbound contract for one-time API key material return."""
+
     model_config = ConfigDict(extra="forbid")
 
     api_key: str
@@ -21,6 +25,8 @@ class CreateApiKeyResponse(BaseModel):
 
 
 class ApiKeyResponse(BaseModel):
+    """Outbound representation for listing workspace API key metadata."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -32,6 +38,8 @@ class ApiKeyResponse(BaseModel):
 
 
 class DisableApiKeyResponse(BaseModel):
+    """Outbound payload confirming key disable state transition."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -39,12 +47,23 @@ class DisableApiKeyResponse(BaseModel):
 
 
 class ApiKeyControllerFactory:
+    """Compose API-key management routes with auth-aware workspace checks.
+
+    Architectural role:
+    - Inbound compatibility adapter that enforces request-level ownership rules
+      while delegating key operations to repositories/services.
+    """
+
     def __init__(self) -> None:
+        """Initialize concrete repositories and auth service dependencies."""
+
         self._api_key_repository = PostgresApiKeyRepository()
         self._workspace_repository = PostgresWorkspaceRepository()
         self._auth_service = AuthService(api_key_repository=self._api_key_repository)
 
     def build(self) -> APIRouter:
+        """Build router exposing create/list/disable API key endpoints."""
+
         router = APIRouter(tags=["api-keys"])
 
         @router.post(
@@ -57,6 +76,22 @@ class ApiKeyControllerFactory:
             request: CreateApiKeyRequest,
             auth: AuthContext = Depends(require_auth),
         ) -> CreateApiKeyResponse:
+            """Create and persist a new API key for authenticated workspace.
+
+            Args:
+                workspace_id: Target workspace from URL path.
+                request: Payload containing human-readable key name.
+                auth: Authenticated principal injected from auth dependency.
+
+            Returns:
+                CreateApiKeyResponse: One-time raw key material plus stored name.
+
+            Internal flow:
+            - Enforce same-workspace ownership from auth context.
+            - Validate workspace existence.
+            - Generate raw key, hash for storage, and persist hash only.
+            """
+
             if auth.workspace_id != workspace_id:
                 raise HTTPException(status_code=403, detail="workspace access denied")
 
@@ -78,6 +113,16 @@ class ApiKeyControllerFactory:
             workspace_id: str,
             auth: AuthContext = Depends(require_auth),
         ) -> list[ApiKeyResponse]:
+            """List API keys for the authenticated workspace.
+
+            Args:
+                workspace_id: Target workspace from URL path.
+                auth: Authenticated principal.
+
+            Returns:
+                list[ApiKeyResponse]: Key metadata list with masked key field.
+            """
+
             if auth.workspace_id != workspace_id:
                 raise HTTPException(status_code=403, detail="workspace access denied")
 
@@ -103,6 +148,20 @@ class ApiKeyControllerFactory:
             api_key_id: str,
             auth: AuthContext = Depends(require_auth),
         ) -> DisableApiKeyResponse:
+            """Disable an API key if it belongs to the authenticated workspace.
+
+            Args:
+                api_key_id: API key identifier from URL path.
+                auth: Authenticated principal for ownership enforcement.
+
+            Returns:
+                DisableApiKeyResponse: Disable confirmation payload.
+
+            Edge cases:
+            - Missing key returns 404.
+            - Cross-workspace access returns 403.
+            """
+
             api_key = await self._api_key_repository.get_by_id(api_key_id)
             if api_key is None:
                 raise HTTPException(status_code=404, detail="api key not found")
