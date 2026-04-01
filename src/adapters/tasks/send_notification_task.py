@@ -7,8 +7,8 @@ from src.application.services.rate_limit_resolver import RateLimitResolver
 from src.bootstrap.settings import settings
 from src.domain.entities.channel import Channel
 from src.domain.entities.event import Event
-from src.infrastructure.config.in_memory_rate_limit_config_repo import InMemoryRateLimitConfigRepository
 from src.infrastructure.celery_app import celery_app
+from src.infrastructure.database.repositories.postgres_rate_limit_config_repository import PostgresRateLimitConfigRepository
 from src.infrastructure.providers.provider_factory import ProviderFactory
 from src.infrastructure.redis.redis_idempotency_store import RedisIdempotencyStore
 from src.infrastructure.redis.redis_rate_limiter import RedisRateLimiter
@@ -46,7 +46,7 @@ def _build_dependencies() -> SendNotificationTaskDependencies:
     - Uses Redis-backed idempotency and rate-limiter adapters.
     """
 
-    config_repository = InMemoryRateLimitConfigRepository()
+    config_repository = PostgresRateLimitConfigRepository()
     return SendNotificationTaskDependencies(
         idempotency_store=RedisIdempotencyStore(),
         rate_limit_resolver=RateLimitResolver(config_repository=config_repository),
