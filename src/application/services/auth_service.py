@@ -4,17 +4,41 @@ import hashlib
 import hmac
 import secrets
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
+import bcrypt
+import jwt
 from fastapi import HTTPException, Request, status
+from jwt import InvalidTokenError
 
+from src.bootstrap.settings import settings
+from src.domain.admin.entities import Admin
 from src.domain.auth.entities import ApiKey
+from src.ports.admin_repository import AdminRepository
 from src.ports.api_key_repository import ApiKeyRepository
+from src.ports.role_repository import RoleRepository
 
 
 @dataclass(slots=True, frozen=True)
 class AuthenticatedPrincipal:
     workspace_id: str
     api_key_id: str
+
+
+@dataclass(slots=True, frozen=True)
+class AdminTokenClaims:
+    admin_id: str
+    roles: tuple[str, ...]
+    exp: int
+
+
+@dataclass(slots=True, frozen=True)
+class AdminLoginResult:
+    access_token: str
+    token_type: str
+    expires_at: datetime
+    admin: Admin
+    roles: tuple[str, ...]
 
 
 class AuthService:
@@ -87,3 +111,74 @@ class AuthService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="invalid api key",
             )
+
+
+class AdminAuthService:
+    def __init__(
+        self,
+        admin_repository: AdminRepository,
+        role_repository: RoleRepository,
+    ) -> None:
+        self._admin_repository = admin_repository
+        self._role_repository = role_repository
+
+    @staticmethod
+    def hash_password(plain_password: str) -> str:
+        password = plain_password.encode("utf-8")
+        return bcrypt.hashpw(password, bcrypt.gensalt()).decode("utf-8")
+
+    @staticmethod
+    def verify_password(plain_password: str, password_hash: str) -> bool:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), password_hash.encode("utf-8"))
+
+    def create_access_token(self, admin_id: str, roles: tuple[str, ...]) -> tuple[str, datetime]:
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.admin_jwt_exp_minutes)
+        payload = {
+            "admin_id": admin_id,
+            "roles": list(roles),
+            "exp": expires_at,
+        }
+        token = jwt.encode(payload, settings.admin_jwt_secret, algorithm=settings.admin_jwt_algorithm)
+        return token, expires_at
+
+    def decode_access_token(self, token: str) -> AdminTokenClaims:
+        try:
+            payload = jwt.decode(token, settings.admin_jwt_secret, algorithms=[settings.admin_jwt_algorithm])
+        except InvalidTokenError as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+
+        admin_id = str(payload.get("admin_id", "")).strip()
+        if not admin_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token")
+
+        role_values = payload.get("roles", [])
+        if not isinstance(role_values, list):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid token")
+
+        roles = tuple(str(role).strip() for role in role_values if str(role).strip())
+        exp = int(payload.get("exp", 0))
+        return AdminTokenClaims(admin_id=admin_id, roles=roles, exp=exp)
+
+    async def login(self, email: str, password: str) -> AdminLoginResult:
+        normalized_email = email.strip().lower()
+        if not normalized_email:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email is required")
+        if not password:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="password is required")
+
+        admin = await self._admin_repository.get_by_email(normalized_email)
+        if admin is None or not self.verify_password(password, admin.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+
+        if not admin.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="admin is disabled")
+
+        roles = tuple(role.name for role in await self._role_repository.list_by_admin(admin.id))
+        token, expires_at = self.create_access_token(admin.id, roles)
+        return AdminLoginResult(
+            access_token=token,
+            token_type="bearer",
+            expires_at=expires_at,
+            admin=admin,
+            roles=roles,
+        )
