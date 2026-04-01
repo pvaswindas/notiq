@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from src.adapters.http.channel_controller import ChannelControllerFactory
+from src.adapters.http.controllers.api_key_controller import ApiKeyControllerFactory
 from src.adapters.http.events_router import EventRouterFactory
 from src.adapters.http.workspace_controller import WorkspaceControllerFactory
 from src.bootstrap.container import ContainerFactory
@@ -33,10 +34,12 @@ class ApplicationFactory:
             update_channel_use_case=container.update_channel_use_case,
             disable_channel_use_case=container.disable_channel_use_case,
         ).build()
+        api_key_router = ApiKeyControllerFactory().build()
 
         app.include_router(notification_router)
         app.include_router(events_router)
         app.include_router(workspace_router)
         app.include_router(channel_router)
+        app.include_router(api_key_router)
 
         return app
