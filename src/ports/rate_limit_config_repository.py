@@ -3,6 +3,24 @@ from abc import ABC, abstractmethod
 from src.domain.rate_limit.entities import RateLimitConfig
 
 
+class RateLimitConfigRepository(ABC):
+    @abstractmethod
+    async def get_by_id(self, config_id: str, workspace_id: str) -> RateLimitConfig | None:
+        ...
+
+    @abstractmethod
+    async def list_by_workspace(self, workspace_id: str) -> list[RateLimitConfig]:
+        ...
+
+    @abstractmethod
+    async def save(self, config: RateLimitConfig) -> RateLimitConfig:
+        ...
+
+    @abstractmethod
+    async def update(self, config: RateLimitConfig) -> RateLimitConfig:
+        ...
+
+
 class RateLimitConfigRepositoryPort(ABC):
     """Port for retrieving scoped rate-limit policies.
 
