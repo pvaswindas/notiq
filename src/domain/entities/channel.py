@@ -7,7 +7,7 @@ class Channel:
     """Legacy channel entity for compatibility event fan-out routing.
 
     Purpose:
-    - Describe a destination/provider configuration for legacy Celery tasks.
+    - Describe a destination/provider configuration for compatibility and admin flows.
 
     Responsibilities:
     - Provide workspace-scoped provider routing inputs.
