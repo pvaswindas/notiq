@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 
 from src.domain.rate_limit.entities import RateLimitConfig
 
@@ -23,3 +24,11 @@ class RateLimiterPort(ABC):
         """
 
         ...
+
+    def allow_many(self, configs: Sequence[RateLimitConfig]) -> tuple[bool, int | None]:
+        """Check multiple policies, returning the first violated config index if blocked."""
+
+        for index, config in enumerate(configs):
+            if not self.allow(config):
+                return False, index
+        return True, None

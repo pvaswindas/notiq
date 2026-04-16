@@ -4,6 +4,11 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from src.bootstrap.settings import Settings
+from src.modules.notifications.application.services.delivery_safety_service import (
+    DeliveryRateLimitResult,
+    DeliverySafetyService,
+)
 from src.modules.notifications.domain.entities.channel import Channel
 from src.modules.notifications.domain.entities.delivery_job import DeliveryJob, DeliveryJobStatus
 from src.modules.notifications.ports.delivery_job_repository_port import DeliveryJobRepositoryPort
@@ -19,12 +24,16 @@ class ProcessDeliveryJobUseCase:
         sender_registry: SenderRegistryPort,
         provider_account_repository: ProviderAccountRepositoryPort,
         delivery_job_repository: DeliveryJobRepositoryPort,
+        delivery_safety_service: DeliverySafetyService,
+        settings: Settings,
     ) -> None:
         """Initialize dependencies for sender resolution, account lookup, and updates."""
 
         self._sender_registry = sender_registry
         self._provider_account_repository = provider_account_repository
         self._delivery_job_repository = delivery_job_repository
+        self._delivery_safety_service = delivery_safety_service
+        self._settings = settings
         self._logger = logging.getLogger(__name__)
 
     async def execute(self, job: DeliveryJob) -> None:
@@ -51,6 +60,11 @@ class ProcessDeliveryJobUseCase:
                 raise ValueError(
                     f"provider account {job.provider_account_id} does not match provider {job.provider_key}"
                 )
+
+            rate_limit_result = await self._delivery_safety_service.check_rate_limit(job)
+            if not rate_limit_result.allowed:
+                await self._defer_rate_limited_job(job=job, rate_limit_result=rate_limit_result)
+                return
 
             sender = self._sender_registry.resolve(job.provider_key)
             await sender.send(
@@ -105,6 +119,38 @@ class ProcessDeliveryJobUseCase:
                 "notification job failed",
                 extra={"job_id": job.job_id, "workspace_id": job.workspace_id, "error": failed_job.last_error},
             )
+
+    async def _defer_rate_limited_job(self, job: DeliveryJob, rate_limit_result: DeliveryRateLimitResult) -> None:
+        """Defer a job when delivery safety policy rejects the current attempt."""
+
+        next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=self._settings.delivery_rate_limit_backoff_seconds)
+        deferred_job = replace(
+            job,
+            status=DeliveryJobStatus.PENDING,
+            last_error=self._truncate_error(
+                "rate limit exceeded"
+                f" scope={rate_limit_result.violated_scope}"
+                f" key={rate_limit_result.violated_key}"
+                f" limit={rate_limit_result.limit}"
+                f" window_seconds={rate_limit_result.window_seconds}"
+            ),
+            processing_owner=None,
+            processing_expires_at=None,
+            next_retry_at=next_retry_at,
+        )
+        await self._delivery_job_repository.update(deferred_job)
+        self._logger.warning(
+            "notification job deferred by rate limit",
+            extra={
+                "job_id": job.job_id,
+                "workspace_id": job.workspace_id,
+                "channel_id": job.channel_id,
+                "provider_key": job.provider_key,
+                "violated_scope": rate_limit_result.violated_scope,
+                "violated_key": rate_limit_result.violated_key,
+                "next_retry_at": next_retry_at.isoformat(),
+            },
+        )
 
     @staticmethod
     def _is_transient_error(exc: Exception) -> bool:
