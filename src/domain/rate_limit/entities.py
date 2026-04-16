@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 
-RateLimitScope = Literal["group", "provider", "tenant", "global"]
+RateLimitScope = Literal["group", "provider", "tenant", "global", "channel"]
 
 
 @dataclass(slots=True, frozen=True)
