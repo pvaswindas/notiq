@@ -2,8 +2,6 @@
 
 from src.ports.channel_repository import ChannelRepository
 from src.ports.channel_repository_port import ChannelRepositoryPort
-from src.ports.event_queue_port import EventQueuePort
-from src.ports.idempotency_store import IdempotencyStorePort
 from src.ports.admin_repository import AdminRepository
 from src.ports.api_key_repository import ApiKeyRepository
 from src.ports.audit_log_repository import AuditLogRepository
@@ -20,8 +18,6 @@ __all__ = [
     "AuditLogRepository",
     "ChannelRepository",
     "ChannelRepositoryPort",
-    "EventQueuePort",
-    "IdempotencyStorePort",
     "PermissionRepository",
     "RateLimitConfigRepository",
     "RateLimitConfigRepositoryPort",

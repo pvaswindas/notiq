@@ -9,7 +9,7 @@ def run() -> None:
     if settings.app_mode == "worker":
         raise RuntimeError(
             "APP_MODE=worker is no longer supported. "
-            "Run Celery with: celery -A src.infrastructure.celery_app.celery_app worker --loglevel=info"
+            "Run the modular notification worker with: python -m src.run_worker"
         )
 
     uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=False)

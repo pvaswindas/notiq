@@ -1,10 +1,11 @@
 import asyncio
 
+
 async def main() -> None:
-    """Legacy entrypoint retained for compatibility."""
+    """Legacy entrypoint retained as an alias for the modular worker."""
     raise RuntimeError(
-        "worker_main is deprecated. Run Celery with: "
-        "celery -A src.infrastructure.celery_app.celery_app worker --loglevel=info"
+        "worker_main is deprecated. Run the modular notification worker with: "
+        "python -m src.run_worker"
     )
 
 
