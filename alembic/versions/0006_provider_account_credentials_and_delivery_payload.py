@@ -1,0 +1,73 @@
+"""store provider credentials as json and persist delivery payloads
+
+Revision ID: 0006_provider_account_credentials_and_delivery_payload
+Revises: 0005_audit_logs
+Create Date: 2026-04-16
+"""
+
+from typing import Sequence, Union
+
+from alembic import op
+import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
+
+
+revision: str = "0006_provider_account_credentials_and_delivery_payload"
+down_revision: Union[str, None] = "0005_audit_logs"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
+
+
+def upgrade() -> None:
+    op.add_column(
+        "provider_accounts",
+        sa.Column(
+            "credentials",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=True,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
+    )
+    op.execute(
+        """
+        UPDATE provider_accounts
+        SET credentials = CASE
+            WHEN credentials_ref IS NULL OR btrim(credentials_ref) = '' THEN '{}'::jsonb
+            ELSE jsonb_build_object('value', credentials_ref)
+        END
+        """
+    )
+    op.alter_column("provider_accounts", "credentials", nullable=False, server_default=None)
+    op.drop_column("provider_accounts", "credentials_ref")
+
+    op.add_column(
+        "delivery_jobs",
+        sa.Column(
+            "event_payload",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=True,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
+    )
+    op.execute(
+        """
+        UPDATE delivery_jobs
+        SET event_payload = jsonb_build_object('message', message)
+        WHERE event_payload IS NULL OR event_payload = '{}'::jsonb
+        """
+    )
+    op.alter_column("delivery_jobs", "event_payload", nullable=False, server_default=None)
+
+
+def downgrade() -> None:
+    op.add_column("provider_accounts", sa.Column("credentials_ref", sa.String(length=255), nullable=True))
+    op.execute(
+        """
+        UPDATE provider_accounts
+        SET credentials_ref = COALESCE(credentials->>'bot_token', credentials->>'value', '')
+        """
+    )
+    op.alter_column("provider_accounts", "credentials_ref", nullable=False)
+    op.drop_column("provider_accounts", "credentials")
+
+    op.drop_column("delivery_jobs", "event_payload")
