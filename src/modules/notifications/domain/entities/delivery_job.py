@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import Any
 
 
 class DeliveryJobStatus(StrEnum):
@@ -26,6 +27,7 @@ class DeliveryJob:
     provider_key: str
     destination: str
     message: str
+    event_payload: dict[str, Any]
     dedupe_key: str
     provider_account_id: str | None = None
     status: DeliveryJobStatus = DeliveryJobStatus.PENDING

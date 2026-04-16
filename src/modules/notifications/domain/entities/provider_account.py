@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any
 
 
 @dataclass(slots=True, frozen=True)
@@ -12,7 +13,7 @@ class ProviderAccount:
 
     provider_account_id: str
     provider_key: str
-    credentials_ref: str
+    credentials: dict[str, Any]
     workspace_id: str | None = None
     is_default: bool = False
     is_active: bool = True
