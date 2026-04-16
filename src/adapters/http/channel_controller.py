@@ -1,52 +1,37 @@
-from typing import Any
-
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.application.use_cases.create_channel import CreateChannelInput, CreateChannelUseCase
-from src.application.use_cases.disable_channel import DisableChannelInput, DisableChannelUseCase
-from src.application.use_cases.list_channels import ListChannelsInput, ListChannelsUseCase
-from src.application.use_cases.update_channel import UpdateChannelInput, UpdateChannelUseCase
-from src.domain.entities.channel import Channel
+from src.adapters.http.dependencies.auth import AuthContext, require_auth
+from src.modules.notifications.application.errors import ConflictError
+from src.modules.notifications.application.use_cases.create_managed_channel_use_case import (
+    CreateManagedChannelCommand,
+    CreateManagedChannelUseCase,
+)
+from src.modules.notifications.application.use_cases.disable_managed_channel_use_case import (
+    DisableManagedChannelCommand,
+    DisableManagedChannelUseCase,
+)
+from src.modules.notifications.application.use_cases.list_managed_channels_use_case import (
+    ListManagedChannelsCommand,
+    ListManagedChannelsUseCase,
+)
+from src.modules.notifications.domain.entities.channel import Channel
 
 
 class CreateChannelRequest(BaseModel):
-    """HTTP payload used to create a workspace channel configuration.
-
-    Purpose:
-    - Capture provider routing fields while keeping payload schema explicit.
-
-    Constraints:
-    - Unknown fields are rejected.
-    - `provider` must be non-empty.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    provider: str = Field(min_length=1)
-    config: dict[str, Any] = Field(default_factory=dict)
-    group: str | None = None
-    is_active: bool = True
-
-
-class UpdateChannelRequest(BaseModel):
-    """HTTP payload used to fully update channel routing metadata.
-
-    Architectural role:
-    - Inbound DTO for compatibility channel management APIs.
-    """
+    """Inbound payload for creating a provider-account-backed channel."""
 
     model_config = ConfigDict(extra="forbid")
 
     workspace_id: str = Field(min_length=1)
     provider: str = Field(min_length=1)
-    config: dict[str, Any] = Field(default_factory=dict)
-    group: str | None = None
-    is_active: bool = True
+    provider_account_id: str = Field(min_length=1)
+    destination: str = Field(min_length=1)
+    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 class DisableChannelRequest(BaseModel):
-    """HTTP payload used to scope channel-disable operation to workspace."""
+    """Inbound payload for disabling a channel within a workspace."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -54,182 +39,126 @@ class DisableChannelRequest(BaseModel):
 
 
 class ChannelResponse(BaseModel):
-    """Stable outbound API contract for channel resources."""
+    """Transport-safe channel representation for management APIs."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str
     workspace_id: str
     provider: str
-    config: dict[str, Any]
-    group: str | None
+    provider_account_id: str | None
+    destination: str
+    metadata: dict[str, str]
     is_active: bool
+    created_at: str
 
 
 class ChannelControllerFactory:
-    """Compose channel-management HTTP routes using application use cases.
-
-    Responsibilities:
-    - Map inbound request contracts into use-case inputs.
-    - Normalize known validation/lookup failures into HTTP status codes.
-    - Keep channel policy decisions in application layer.
-    """
+    """Compose authenticated channel management routes."""
 
     def __init__(
         self,
-        create_channel_use_case: CreateChannelUseCase,
-        list_channels_use_case: ListChannelsUseCase,
-        update_channel_use_case: UpdateChannelUseCase,
-        disable_channel_use_case: DisableChannelUseCase,
+        create_channel_use_case: CreateManagedChannelUseCase,
+        list_channels_use_case: ListManagedChannelsUseCase,
+        disable_channel_use_case: DisableManagedChannelUseCase,
     ) -> None:
-        """Store route dependencies for create/list/update/disable handlers."""
-
         self._create_channel_use_case = create_channel_use_case
         self._list_channels_use_case = list_channels_use_case
-        self._update_channel_use_case = update_channel_use_case
         self._disable_channel_use_case = disable_channel_use_case
 
     def build(self) -> APIRouter:
-        """Build router with workspace-scoped channel management endpoints.
-
-        Returns:
-            APIRouter: Router exposing channel CRUD-like compatibility actions.
-        """
-
         router = APIRouter(tags=["channels"])
 
-        @router.post(
-            "/workspaces/{workspace_id}/channels",
-            response_model=ChannelResponse,
-            status_code=status.HTTP_201_CREATED,
-        )
-        async def create_channel(workspace_id: str, request: CreateChannelRequest) -> ChannelResponse:
-            """Create a new channel for the provided workspace.
-
-            Args:
-                workspace_id: Workspace identifier from URL path.
-                request: Validated channel-creation payload.
-
-            Returns:
-                ChannelResponse: Persisted channel representation.
-
-            Edge cases:
-            - Invalid input maps to HTTP 400.
-            - Unknown workspace maps to HTTP 404.
-            """
-
+        @router.post("/channels", response_model=ChannelResponse, status_code=status.HTTP_201_CREATED)
+        async def create_channel(
+            request: CreateChannelRequest,
+            auth: AuthContext = Depends(require_auth),
+        ) -> ChannelResponse:
+            _enforce_workspace_access(auth, request.workspace_id)
             try:
                 channel = await self._create_channel_use_case.execute(
-                    CreateChannelInput(
-                        workspace_id=workspace_id,
+                    CreateManagedChannelCommand(
+                        workspace_id=request.workspace_id,
                         provider=request.provider,
-                        config=request.config,
-                        group=request.group,
-                        is_active=request.is_active,
+                        provider_account_id=request.provider_account_id,
+                        destination=request.destination,
+                        metadata=request.metadata,
                         actor_id=None,
-                        audit_metadata={"source": "channel_api"},
+                        audit_metadata={
+                            "source": "channel_api",
+                            "workspace_id": auth.workspace_id,
+                            "auth_api_key_id": auth.api_key_id,
+                        },
                     )
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except LookupError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
-
+            except PermissionError as exc:
+                raise HTTPException(status_code=403, detail=str(exc)) from exc
+            except ConflictError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
             return _to_channel_response(channel)
 
-        @router.get("/workspaces/{workspace_id}/channels", response_model=list[ChannelResponse])
-        async def list_channels(workspace_id: str) -> list[ChannelResponse]:
-            """List channels configured for one workspace.
-
-            Args:
-                workspace_id: Workspace identifier from URL path.
-
-            Returns:
-                list[ChannelResponse]: Workspace channel DTO collection.
-            """
-
+        @router.get("/channels", response_model=list[ChannelResponse])
+        async def list_channels(
+            workspace_id: str = Query(min_length=1),
+            auth: AuthContext = Depends(require_auth),
+        ) -> list[ChannelResponse]:
+            _enforce_workspace_access(auth, workspace_id)
             try:
                 channels = await self._list_channels_use_case.execute(
-                    ListChannelsInput(workspace_id=workspace_id)
+                    ListManagedChannelsCommand(workspace_id=workspace_id)
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except LookupError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
-
             return [_to_channel_response(channel) for channel in channels]
 
-        @router.put("/channels/{channel_id}", response_model=ChannelResponse)
-        async def update_channel(channel_id: str, request: UpdateChannelRequest) -> ChannelResponse:
-            """Replace persisted channel metadata for the requested channel id.
-
-            Args:
-                channel_id: Target channel identifier.
-                request: Payload containing workspace scope and replacement data.
-
-            Returns:
-                ChannelResponse: Updated channel representation.
-            """
-
-            try:
-                channel = await self._update_channel_use_case.execute(
-                    UpdateChannelInput(
-                        channel_id=channel_id,
-                        workspace_id=request.workspace_id,
-                        provider=request.provider,
-                        config=request.config,
-                        group=request.group,
-                        is_active=request.is_active,
-                        actor_id=None,
-                        audit_metadata={"source": "channel_api"},
-                    )
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            except LookupError as exc:
-                raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-            return _to_channel_response(channel)
-
-        @router.patch("/channels/{channel_id}/disable", response_model=ChannelResponse)
-        async def disable_channel(channel_id: str, request: DisableChannelRequest) -> ChannelResponse:
-            """Disable a channel for the provided workspace scope.
-
-            Args:
-                channel_id: Target channel identifier.
-                request: Payload carrying workspace ownership scope.
-
-            Returns:
-                ChannelResponse: Disabled (or already-disabled) channel state.
-            """
-
+        @router.patch("/channels/{channel_id}", response_model=ChannelResponse)
+        async def disable_channel(
+            channel_id: str,
+            request: DisableChannelRequest,
+            auth: AuthContext = Depends(require_auth),
+        ) -> ChannelResponse:
+            _enforce_workspace_access(auth, request.workspace_id)
             try:
                 channel = await self._disable_channel_use_case.execute(
-                    DisableChannelInput(
+                    DisableManagedChannelCommand(
                         channel_id=channel_id,
                         workspace_id=request.workspace_id,
                         actor_id=None,
-                        audit_metadata={"source": "channel_api"},
+                        audit_metadata={
+                            "source": "channel_api",
+                            "workspace_id": auth.workspace_id,
+                            "auth_api_key_id": auth.api_key_id,
+                        },
                     )
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except LookupError as exc:
                 raise HTTPException(status_code=404, detail=str(exc)) from exc
-
             return _to_channel_response(channel)
 
         return router
 
 
-def _to_channel_response(channel: Channel) -> ChannelResponse:
-    """Map channel domain entity into transport-safe API response model."""
+def _enforce_workspace_access(auth: AuthContext, workspace_id: str) -> None:
+    if auth.workspace_id != workspace_id:
+        raise HTTPException(status_code=403, detail="workspace access denied")
 
+
+def _to_channel_response(channel: Channel) -> ChannelResponse:
     return ChannelResponse(
-        id=channel.id,
+        id=channel.channel_id,
         workspace_id=channel.workspace_id,
-        provider=channel.provider,
-        config=channel.config,
-        group=channel.group,
+        provider=channel.provider_key,
+        provider_account_id=channel.provider_account_id,
+        destination=channel.destination,
+        metadata=dict(channel.metadata),
         is_active=channel.is_active,
+        created_at=channel.created_at.isoformat(),
     )
