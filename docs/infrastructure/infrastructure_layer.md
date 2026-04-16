@@ -30,19 +30,18 @@ Schema evolution is managed via Alembic migrations in `alembic/versions`.
 - Concurrency safety relies on transactional row locking.
 
 ### Compatibility Processing Model
-- `/events` enqueues Celery tasks.
-- Redis provides broker/backend transport.
-- Task-level idempotency and throttling controls are Redis-backed.
+- `/events` remains as a request-shape compatibility adapter.
+- The adapter translates inbound requests into the same `delivery_jobs` persistence flow used by `/notifications/send`.
 
 ## Worker Behavior
-- Modular flow execution logic is in `ProcessDeliveryJobUseCase` and worker orchestration classes.
-- Compatibility worker runtime is Celery-based (`src.infrastructure.celery_app`).
+- Delivery execution logic is in `ProcessDeliveryJobUseCase` and worker orchestration classes.
+- The only notification worker runtime is `src.run_worker`.
 - Deprecated worker entrypoints remain only to fail-fast with guidance.
 
 ## External Integrations
 - Provider adapters: Telegram and Email senders.
 - Database adapters: SQLAlchemy async repositories for domain and auth data.
-- Redis adapters: Celery transport, compatibility idempotency store, compatibility rate limiter.
+- Redis adapters: delivery rate limiting and other shared runtime concerns.
 - JWT signing/verification via `PyJWT` in `AdminAuthService`.
 
 ## Deployment Setup
@@ -51,7 +50,7 @@ Schema evolution is managed via Alembic migrations in `alembic/versions`.
 - `postgres`
 - `redis`
 - `app` (FastAPI runtime)
-- `worker` (Celery worker runtime)
+- `worker` (notification worker runtime)
 
 ### Environment Variables
 - `DATABASE_URL`

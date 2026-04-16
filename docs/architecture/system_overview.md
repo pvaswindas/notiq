@@ -20,7 +20,7 @@ Notiq centralizes hard reliability and safety concerns that are expensive to dup
 This allows product services to emit events while Notiq owns delivery orchestration.
 
 ## Architecture Style
-The repository is a modular monolith with hexagonal boundaries, with a transitional compatibility slice still present.
+The repository is a modular monolith with hexagonal boundaries.
 
 Primary production orchestration is under `src/modules/notifications` with clean layers:
 - `domain`: core notification language and invariants.
@@ -30,13 +30,13 @@ Primary production orchestration is under `src/modules/notifications` with clean
 - `infrastructure`: concrete implementations.
 - `bootstrap`: composition roots.
 
-Compatibility behavior exists in legacy paths (`src/application`, `src/domain`, `src/adapters`, `src/ports`) and should be extended only when backward compatibility requires it.
+Legacy HTTP compatibility remains only at the `/events` adapter boundary; notification execution itself is unified under `src/modules/notifications`.
 
 ## High-Level Runtime Topology
 1. API process starts via `src/main.py` and wires routes in `src/bootstrap/app.py`.
-2. Primary notification intake persists delivery jobs in PostgreSQL.
+2. Notification intake persists delivery jobs in PostgreSQL.
 3. Delivery jobs are processed asynchronously by worker logic (`ProcessDeliveryJobUseCase`) and sender adapters.
-4. Compatibility `/events` flow enqueues Celery tasks and uses Redis-backed idempotency and throttling controls.
+4. Compatibility `/events` requests are translated into the same modular intake flow before job persistence.
 
 ## Public API Surface
 - `POST /notifications/send`
@@ -68,5 +68,5 @@ Compatibility behavior exists in legacy paths (`src/application`, `src/domain`, 
 - Keep policy decisions in use cases and domain services.
 - Keep infrastructure replaceable behind ports.
 - Keep API adapters thin and protocol-focused.
-- Preserve compatibility endpoints without letting them become the default extension path.
+- Preserve compatibility endpoints without allowing alternate execution paths.
 - Keep RBAC authorization decisions explicit and documented for every admin endpoint.

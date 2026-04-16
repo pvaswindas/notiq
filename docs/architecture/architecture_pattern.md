@@ -5,7 +5,7 @@ Notiq uses Hexagonal Architecture inside a modular monolith.
 
 ## Why This Pattern Fits
 - Notification delivery policies must stay stable while providers, queues, and persistence choices evolve.
-- The system has multiple inbound protocols (HTTP, worker polling, Celery tasks) and outbound integrations (provider APIs, Postgres, Redis).
+- The system has multiple inbound protocols (HTTP and worker polling) and outbound integrations (provider APIs, Postgres, Redis).
 - Strong boundaries reduce accidental coupling and make extension safer.
 
 ## Primary Module Structure
@@ -17,7 +17,7 @@ MUST:
 - Express business language and invariants.
 
 MUST NOT:
-- Know anything about HTTP, SQLAlchemy, Redis, Celery, or SDK clients.
+- Know anything about HTTP, SQLAlchemy, Redis, or SDK clients.
 
 ### Application (`src/modules/notifications/application`)
 Purpose:

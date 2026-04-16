@@ -3,7 +3,7 @@
 ## Scope
 Primary orchestration for notifications is implemented in `src/modules/notifications/application`.
 
-A compatibility orchestration path remains in `src/application/use_cases/process_event_use_case.py` for the legacy `/events` endpoint.
+The legacy `/events` endpoint is now only an inbound compatibility adapter over `SendNotificationUseCase`.
 Administrative orchestration for RBAC/governance APIs is implemented under `src/application/admin_use_cases` and `src/application/services`.
 
 ## Primary Use Cases
@@ -51,9 +51,8 @@ Important constraints:
 - Produces deterministic text payloads for delivery jobs.
 
 ## Compatibility Application Behavior
-Legacy `ProcessEventUseCase` fans out channels into Celery tasks.
-
-Associated compatibility services (for example rate-limit resolution) remain valid only for `/events` behavior and should not absorb new primary architecture work.
+Compatibility routing is limited to translating `/events` payloads into `SendNotificationCommand`.
+All enqueue and execution behavior now flows through the same modular notification use cases and worker.
 
 ## Administrative Use Cases
 

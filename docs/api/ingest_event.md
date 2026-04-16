@@ -12,8 +12,8 @@
 ## 3. Request Payload
 
 ### Schema
-- `event_type` (`string`, required): Legacy event name used for compatibility fan-out.
-- `payload` (`object`, optional, default `{}`): Event data forwarded to Celery task payload.
+- `event_type` (`string`, required): Legacy event name mapped to modular `event_name`.
+- `payload` (`object`, optional, default `{}`): Event data forwarded into persisted delivery jobs.
 
 Workspace identity is not accepted in the body; it is derived from the authenticated API key.
 
@@ -46,12 +46,12 @@ Workspace identity is not accepted in the body; it is derived from the authentic
 1. Validate auth header and authenticate API key.
 2. Resolve workspace context from authenticated principal.
 3. Validate request payload.
-4. Construct legacy `Event` object with authenticated workspace ID.
-5. Execute compatibility `ProcessEventUseCase`.
-6. Fan out active channels into Celery task queue.
+4. Generate an internal compatibility `event_id`.
+5. Build `SendNotificationCommand` with authenticated workspace ID and the incoming `event_type`.
+6. Execute `SendNotificationUseCase` and persist modular `delivery_jobs`.
 7. Return accepted response.
 
 ## 6. What To Do Next
 - Treat this endpoint as compatibility-only.
 - Use `/notifications/send` for new architecture investments.
-- Tune compatibility Redis/celery capacity when backlog grows.
+- Expect the same delivery semantics as the modular pipeline after acceptance.

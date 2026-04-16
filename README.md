@@ -49,8 +49,8 @@ High-level layers:
 ## 4. Notification Flow
 
 End-to-end runtime flow:
-1. Client sends `POST /notifications/send` with workspace + event payload.
-2. HTTP adapter maps request to `SendNotificationUseCase`.
+1. Client sends `POST /notifications/send` or the compatibility endpoint `POST /events`.
+2. HTTP adapter maps the request to `SendNotificationUseCase`.
 3. Use case validates input, checks workspace rate limits, and computes idempotency fingerprints.
 4. Active channels are selected for the workspace.
 5. One `DeliveryJob` is created per channel and persisted in the delivery queue store.
@@ -78,8 +78,8 @@ src/
       adapters/                # HTTP inbound, provider outbound
 
   infrastructure/
-    persistence/               # In-memory repositories
-    queue/                     # Queue abstraction/adapter (legacy seam)
+    persistence/               # Database-backed repositories
+    redis/                     # Shared Redis-backed infrastructure
     id_generator/              # ID generation implementation
 
   shared/                      # Shared utilities
@@ -93,7 +93,8 @@ src/
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python3 src/main.py
+python3 -m src.run
+python3 -m src.run_worker
 ```
 
 ### Basic runtime validation

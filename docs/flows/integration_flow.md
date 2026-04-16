@@ -14,7 +14,7 @@ Describe how API boundaries, persistence, queues, auth, and provider integration
 - `POST /events`
 - Adapter: `EventRouterFactory`
 - Auth: requires `Authorization: Bearer <api_key>`.
-- Action: request schema + auth context -> legacy `ProcessEventUseCase`.
+- Action: request schema + auth context -> compatibility mapping -> `SendNotificationUseCase`.
 
 ### Workspace/Channel/API-Key Management Endpoints
 - Adapters: `WorkspaceControllerFactory`, `ChannelControllerFactory`, `ApiKeyControllerFactory`.
@@ -36,7 +36,7 @@ Describe how API boundaries, persistence, queues, auth, and provider integration
 
 ### Queueing
 - Primary modular flow: Postgres table-backed queue semantics (`delivery_jobs` claims).
-- Compatibility flow: Celery + Redis broker/backend.
+- Compatibility flow: `/events` request translation into the modular `delivery_jobs` pipeline.
 
 ### Idempotency and Throttling
 - Primary modular flow: idempotency claims persisted in Postgres-backed repository.
@@ -57,7 +57,7 @@ Describe how API boundaries, persistence, queues, auth, and provider integration
 - Auth failures return `401`/`403` at dependency layer.
 - Validation failures return `422` from FastAPI/Pydantic.
 - Known business validation in compatibility routes maps to `400`/`404`.
-- Provider and network failures enter retry/terminal policy logic in job execution or Celery retry behavior.
+- Provider and network failures enter retry/terminal policy logic in `ProcessDeliveryJobUseCase`.
 - Admin lifecycle and RBAC conflicts map to explicit API failures:
   - duplicate admin/role/permission names -> `409`.
   - missing admin/role/permission references -> `404`.

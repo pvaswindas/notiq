@@ -16,7 +16,7 @@ CAN:
 - Validate invariants and state transitions.
 
 MUST NOT:
-- Import FastAPI, Celery, SQLAlchemy, Redis clients, or provider SDKs.
+- Import FastAPI, SQLAlchemy, Redis clients, or provider SDKs.
 - Execute I/O directly.
 
 ### Application
