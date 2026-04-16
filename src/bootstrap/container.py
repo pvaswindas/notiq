@@ -28,9 +28,12 @@ from src.infrastructure.persistence.postgres.provider_account_repository import 
 from src.infrastructure.persistence.postgres.workspace_repository import (
     PostgresWorkspaceRepository as NotificationsPostgresWorkspaceRepository,
 )
+from src.infrastructure.database.repositories.postgres_rate_limit_config_repository import PostgresRateLimitConfigRepository
+from src.infrastructure.redis.redis_delivery_rate_limiter import RedisDeliveryRateLimiter
 from src.modules.notifications.adapters.outbound.email.email_notifier import EmailNotifier
 from src.modules.notifications.adapters.outbound.telegram.telegram_notifier import TelegramNotifier
 from src.modules.notifications.application.mappers.event_message_mapper import EventMessageMapper
+from src.modules.notifications.application.services.delivery_safety_service import DeliverySafetyService
 from src.modules.notifications.application.services.provider_account_resolver import ProviderAccountResolver
 from src.modules.notifications.application.services.sender_registry import SenderRegistry
 from src.modules.notifications.application.use_cases.process_delivery_job_use_case import ProcessDeliveryJobUseCase
@@ -71,6 +74,8 @@ class ContainerFactory:
         provider_account_repository = PostgresProviderAccountRepository()
         idempotency_repository = PostgresIdempotencyRepository()
         delivery_job_repository = PostgresDeliveryJobRepository()
+        rate_limit_config_repository = PostgresRateLimitConfigRepository()
+        delivery_rate_limiter = RedisDeliveryRateLimiter()
         id_generator = UUIDIdGenerator()
 
         public_api_workspace_repository = PublicApiPostgresWorkspaceRepository()
@@ -87,6 +92,11 @@ class ContainerFactory:
         provider_account_resolver = ProviderAccountResolver(provider_account_repository=provider_account_repository)
         message_mapper = EventMessageMapper()
         idempotency_service = IdempotencyService()
+        delivery_safety_service = DeliverySafetyService(
+            rate_limiter=delivery_rate_limiter,
+            settings=settings,
+            rate_limit_config_repository=rate_limit_config_repository,
+        )
 
         send_notification_use_case = SendNotificationUseCase(
             workspace_repository=notification_workspace_repository,
@@ -103,6 +113,8 @@ class ContainerFactory:
             sender_registry=sender_registry,
             provider_account_repository=provider_account_repository,
             delivery_job_repository=delivery_job_repository,
+            delivery_safety_service=delivery_safety_service,
+            settings=settings,
         )
         notification_worker = NotificationWorker(
             worker_id=settings.worker_id,
