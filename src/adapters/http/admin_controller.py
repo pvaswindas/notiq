@@ -242,7 +242,7 @@ class AdminControllerFactory:
 
         def _normalize_scope(scope_value: str) -> str:
             normalized = scope_value.strip().lower()
-            if normalized not in {"group", "provider", "tenant", "global"}:
+            if normalized not in {"group", "provider", "tenant", "global", "channel"}:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid rate limit scope")
             return normalized
 
