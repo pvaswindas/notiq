@@ -2,6 +2,9 @@ import logging
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
+import httpx
+
+from src.modules.notifications.domain.entities.channel import Channel
 from src.modules.notifications.domain.entities.delivery_job import DeliveryJob, DeliveryJobStatus
 from src.modules.notifications.ports.delivery_job_repository_port import DeliveryJobRepositoryPort
 from src.modules.notifications.ports.provider_account_repository_port import ProviderAccountRepositoryPort
@@ -40,9 +43,27 @@ class ProcessDeliveryJobUseCase:
             provider_account = await self._provider_account_repository.get_by_id(job.provider_account_id)
             if provider_account is None or not provider_account.is_active:
                 raise ValueError(f"provider account unavailable: {job.provider_account_id}")
+            if provider_account.workspace_id != job.workspace_id:
+                raise ValueError(
+                    f"provider account {job.provider_account_id} does not belong to workspace {job.workspace_id}"
+                )
+            if provider_account.provider_key != job.provider_key:
+                raise ValueError(
+                    f"provider account {job.provider_account_id} does not match provider {job.provider_key}"
+                )
 
             sender = self._sender_registry.resolve(job.provider_key)
-            await sender.send(job, provider_account)
+            await sender.send(
+                channel=Channel(
+                    channel_id=job.channel_id,
+                    workspace_id=job.workspace_id,
+                    provider_key=job.provider_key,
+                    destination=job.destination,
+                    provider_account_id=job.provider_account_id,
+                ),
+                provider_account=provider_account,
+                event=dict(job.event_payload),
+            )
 
             success_job = replace(
                 job,
@@ -89,6 +110,10 @@ class ProcessDeliveryJobUseCase:
     def _is_transient_error(exc: Exception) -> bool:
         """Return whether an exception is retryable by infrastructure policy."""
 
+        if isinstance(exc, httpx.HTTPStatusError):
+            return exc.response.status_code == 429 or exc.response.status_code >= 500
+        if isinstance(exc, httpx.RequestError):
+            return True
         return isinstance(exc, (TimeoutError, ConnectionError, OSError))
 
     @staticmethod

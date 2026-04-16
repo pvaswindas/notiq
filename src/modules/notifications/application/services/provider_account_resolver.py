@@ -12,29 +12,25 @@ class ProviderAccountResolver:
         self._provider_account_repository = provider_account_repository
 
     async def resolve_for_channel(self, channel: Channel) -> ProviderAccount:
-        """Resolve account in this order: channel-specific, workspace default, system default.
+        """Resolve the explicit provider account configured for a channel.
 
         Raises:
-        - ValueError: If no active account can be resolved for the channel.
+        - ValueError: If the channel is missing an account or the account is invalid.
         """
 
-        if channel.provider_account_id:
-            account = await self._provider_account_repository.get_by_id(channel.provider_account_id)
-            if account is None or not account.is_active:
-                raise ValueError(f"inactive or missing provider account: {channel.provider_account_id}")
-            return account
+        if not channel.provider_account_id:
+            raise ValueError(f"channel {channel.channel_id} is missing provider_account_id")
 
-        workspace_default = await self._provider_account_repository.get_default(
-            provider_key=channel.provider_key,
-            workspace_id=channel.workspace_id,
-        )
-        if workspace_default is not None and workspace_default.is_active:
-            return workspace_default
+        account = await self._provider_account_repository.get_by_id(channel.provider_account_id)
+        if account is None or not account.is_active:
+            raise ValueError(f"inactive or missing provider account: {channel.provider_account_id}")
+        if account.provider_key != channel.provider_key:
+            raise ValueError(
+                f"provider account {channel.provider_account_id} does not match channel provider {channel.provider_key}"
+            )
+        if account.workspace_id != channel.workspace_id:
+            raise ValueError(
+                f"provider account {channel.provider_account_id} does not belong to workspace {channel.workspace_id}"
+            )
 
-        system_default = await self._provider_account_repository.get_default(
-            provider_key=channel.provider_key,
-            workspace_id=None,
-        )
-        if system_default is None or not system_default.is_active:
-            raise ValueError(f"missing default provider account for provider={channel.provider_key}")
-        return system_default
+        return account

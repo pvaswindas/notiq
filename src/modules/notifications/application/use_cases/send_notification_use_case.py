@@ -92,6 +92,7 @@ class SendNotificationUseCase:
                 provider_account_id=provider_account.provider_account_id,
                 destination=channel.destination,
                 message=message,
+                event_payload=dict(event.payload),
                 dedupe_key=channel_fingerprint.value,
             )
 
