@@ -8,6 +8,8 @@ from src.application.use_cases.get_workspace import GetWorkspaceUseCase
 from src.application.use_cases.list_channels import ListChannelsUseCase
 from src.application.use_cases.list_workspaces import ListWorkspacesUseCase
 from src.application.use_cases.update_channel import UpdateChannelUseCase
+from src.bootstrap.settings import settings
+from src.bootstrap.workers.notification_worker import NotificationWorker
 from src.application.services.audit_logger import AuditLogger
 from src.infrastructure.database.repositories.postgres_audit_log_repository import PostgresAuditLogRepository
 from src.infrastructure.database.repositories.postgres_channel_repository import (
@@ -50,6 +52,7 @@ class Container:
     list_channels_use_case: ListChannelsUseCase
     update_channel_use_case: UpdateChannelUseCase
     disable_channel_use_case: DisableChannelUseCase
+    notification_worker: NotificationWorker
 
 
 class ContainerFactory:
@@ -101,6 +104,14 @@ class ContainerFactory:
             provider_account_repository=provider_account_repository,
             delivery_job_repository=delivery_job_repository,
         )
+        notification_worker = NotificationWorker(
+            worker_id=settings.worker_id,
+            delivery_job_repository=delivery_job_repository,
+            process_delivery_job_use_case=process_delivery_job_use_case,
+            batch_size=settings.worker_batch_size,
+            poll_interval_seconds=settings.worker_poll_interval_seconds,
+            lease_seconds=settings.worker_lease_seconds,
+        )
 
         create_workspace_use_case = CreateWorkspaceUseCase(
             workspace_repository=public_api_workspace_repository,
@@ -141,4 +152,5 @@ class ContainerFactory:
             list_channels_use_case=list_channels_use_case,
             update_channel_use_case=update_channel_use_case,
             disable_channel_use_case=disable_channel_use_case,
+            notification_worker=notification_worker,
         )

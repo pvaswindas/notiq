@@ -49,11 +49,18 @@ services:
   worker:
     build: .
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
+      DATABASE_URL: postgresql+asyncpg://notiq:notiq@postgres:5432/notiq
       REDIS_URL: redis://redis:6379/0
-    command: celery -A src.infrastructure.celery_app.celery_app worker --loglevel=info
+      WORKER_ID: modular-worker-1
+      WORKER_BATCH_SIZE: 50
+      WORKER_POLL_INTERVAL_SECONDS: 1.0
+      WORKER_LEASE_SECONDS: 30
+    command: python -m src.run_worker
 
 volumes:
   postgres_data:
