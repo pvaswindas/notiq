@@ -1,20 +1,13 @@
 from dataclasses import dataclass
 
-from src.application.use_cases.create_channel import CreateChannelUseCase
 from src.application.use_cases.create_workspace import CreateWorkspaceUseCase
-from src.application.use_cases.disable_channel import DisableChannelUseCase
 from src.application.use_cases.disable_workspace import DisableWorkspaceUseCase
 from src.application.use_cases.get_workspace import GetWorkspaceUseCase
-from src.application.use_cases.list_channels import ListChannelsUseCase
 from src.application.use_cases.list_workspaces import ListWorkspacesUseCase
-from src.application.use_cases.update_channel import UpdateChannelUseCase
 from src.bootstrap.settings import settings
 from src.bootstrap.workers.notification_worker import NotificationWorker
 from src.application.services.audit_logger import AuditLogger
 from src.infrastructure.database.repositories.postgres_audit_log_repository import PostgresAuditLogRepository
-from src.infrastructure.database.repositories.postgres_channel_repository import (
-    PostgresChannelRepository as PublicApiPostgresChannelRepository,
-)
 from src.infrastructure.database.repositories.postgres_workspace_repository import (
     PostgresWorkspaceRepository as PublicApiPostgresWorkspaceRepository,
 )
@@ -33,9 +26,24 @@ from src.infrastructure.redis.redis_delivery_rate_limiter import RedisDeliveryRa
 from src.modules.notifications.adapters.outbound.email.email_notifier import EmailNotifier
 from src.modules.notifications.adapters.outbound.telegram.telegram_notifier import TelegramNotifier
 from src.modules.notifications.application.mappers.event_message_mapper import EventMessageMapper
+from src.modules.notifications.application.services.provider_configuration_validator import (
+    ProviderConfigurationValidator,
+)
 from src.modules.notifications.application.services.delivery_safety_service import DeliverySafetyService
 from src.modules.notifications.application.services.provider_account_resolver import ProviderAccountResolver
 from src.modules.notifications.application.services.sender_registry import SenderRegistry
+from src.modules.notifications.application.use_cases.create_managed_channel_use_case import CreateManagedChannelUseCase
+from src.modules.notifications.application.use_cases.create_provider_account_use_case import (
+    CreateProviderAccountUseCase,
+)
+from src.modules.notifications.application.use_cases.disable_managed_channel_use_case import (
+    DisableManagedChannelUseCase,
+)
+from src.modules.notifications.application.use_cases.get_provider_account_use_case import GetProviderAccountUseCase
+from src.modules.notifications.application.use_cases.list_managed_channels_use_case import ListManagedChannelsUseCase
+from src.modules.notifications.application.use_cases.list_provider_accounts_use_case import (
+    ListProviderAccountsUseCase,
+)
 from src.modules.notifications.application.use_cases.process_delivery_job_use_case import ProcessDeliveryJobUseCase
 from src.modules.notifications.application.use_cases.send_notification_use_case import SendNotificationUseCase
 from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
@@ -53,10 +61,12 @@ class Container:
     disable_workspace_use_case: DisableWorkspaceUseCase
     get_workspace_use_case: GetWorkspaceUseCase
     list_workspaces_use_case: ListWorkspacesUseCase
-    create_channel_use_case: CreateChannelUseCase
-    list_channels_use_case: ListChannelsUseCase
-    update_channel_use_case: UpdateChannelUseCase
-    disable_channel_use_case: DisableChannelUseCase
+    create_provider_account_use_case: CreateProviderAccountUseCase
+    list_provider_accounts_use_case: ListProviderAccountsUseCase
+    get_provider_account_use_case: GetProviderAccountUseCase
+    create_channel_use_case: CreateManagedChannelUseCase
+    list_channels_use_case: ListManagedChannelsUseCase
+    disable_channel_use_case: DisableManagedChannelUseCase
     notification_worker: NotificationWorker
 
 
@@ -79,9 +89,9 @@ class ContainerFactory:
         rate_limit_config_repository = PostgresRateLimitConfigRepository()
         delivery_rate_limiter = RedisDeliveryRateLimiter()
         id_generator = UUIDIdGenerator()
+        configuration_validator = ProviderConfigurationValidator()
 
         public_api_workspace_repository = PublicApiPostgresWorkspaceRepository()
-        public_api_channel_repository = PublicApiPostgresChannelRepository()
         audit_log_repository = PostgresAuditLogRepository()
         audit_logger = AuditLogger(audit_log_repository=audit_log_repository)
 
@@ -137,21 +147,34 @@ class ContainerFactory:
         )
         get_workspace_use_case = GetWorkspaceUseCase(workspace_repository=public_api_workspace_repository)
         list_workspaces_use_case = ListWorkspacesUseCase(workspace_repository=public_api_workspace_repository)
-        create_channel_use_case = CreateChannelUseCase(
-            channel_repository=public_api_channel_repository,
-            workspace_repository=public_api_workspace_repository,
+        create_provider_account_use_case = CreateProviderAccountUseCase(
+            workspace_repository=notification_workspace_repository,
+            provider_account_repository=provider_account_repository,
+            validator=configuration_validator,
+            id_generator=id_generator,
             audit_logger=audit_logger,
         )
-        list_channels_use_case = ListChannelsUseCase(
-            channel_repository=public_api_channel_repository,
-            workspace_repository=public_api_workspace_repository,
+        list_provider_accounts_use_case = ListProviderAccountsUseCase(
+            workspace_repository=notification_workspace_repository,
+            provider_account_repository=provider_account_repository,
         )
-        update_channel_use_case = UpdateChannelUseCase(
-            channel_repository=public_api_channel_repository,
+        get_provider_account_use_case = GetProviderAccountUseCase(
+            provider_account_repository=provider_account_repository,
+        )
+        create_channel_use_case = CreateManagedChannelUseCase(
+            workspace_repository=notification_workspace_repository,
+            channel_repository=notification_channel_repository,
+            provider_account_repository=provider_account_repository,
+            validator=configuration_validator,
+            id_generator=id_generator,
             audit_logger=audit_logger,
         )
-        disable_channel_use_case = DisableChannelUseCase(
-            channel_repository=public_api_channel_repository,
+        list_channels_use_case = ListManagedChannelsUseCase(
+            workspace_repository=notification_workspace_repository,
+            channel_repository=notification_channel_repository,
+        )
+        disable_channel_use_case = DisableManagedChannelUseCase(
+            channel_repository=notification_channel_repository,
             audit_logger=audit_logger,
         )
 
@@ -163,9 +186,11 @@ class ContainerFactory:
             disable_workspace_use_case=disable_workspace_use_case,
             get_workspace_use_case=get_workspace_use_case,
             list_workspaces_use_case=list_workspaces_use_case,
+            create_provider_account_use_case=create_provider_account_use_case,
+            list_provider_accounts_use_case=list_provider_accounts_use_case,
+            get_provider_account_use_case=get_provider_account_use_case,
             create_channel_use_case=create_channel_use_case,
             list_channels_use_case=list_channels_use_case,
-            update_channel_use_case=update_channel_use_case,
             disable_channel_use_case=disable_channel_use_case,
             notification_worker=notification_worker,
         )

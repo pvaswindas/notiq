@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from src.adapters.http.admin_controller import AdminControllerFactory
 from src.adapters.http.admin_audit_controller import AdminAuditControllerFactory
 from src.adapters.http.channel_controller import ChannelControllerFactory
+from src.adapters.http.provider_account_controller import ProviderAccountControllerFactory
 from src.adapters.http.controllers.api_key_controller import ApiKeyControllerFactory
 from src.adapters.http.events_router import EventRouterFactory
 from src.adapters.http.workspace_controller import WorkspaceControllerFactory
@@ -32,8 +33,12 @@ class ApplicationFactory:
         channel_router = ChannelControllerFactory(
             create_channel_use_case=container.create_channel_use_case,
             list_channels_use_case=container.list_channels_use_case,
-            update_channel_use_case=container.update_channel_use_case,
             disable_channel_use_case=container.disable_channel_use_case,
+        ).build()
+        provider_account_router = ProviderAccountControllerFactory(
+            create_provider_account_use_case=container.create_provider_account_use_case,
+            list_provider_accounts_use_case=container.list_provider_accounts_use_case,
+            get_provider_account_use_case=container.get_provider_account_use_case,
         ).build()
         api_key_router = ApiKeyControllerFactory().build()
         admin_router = AdminControllerFactory().build()
@@ -42,6 +47,7 @@ class ApplicationFactory:
         app.include_router(notification_router)
         app.include_router(events_router)
         app.include_router(workspace_router)
+        app.include_router(provider_account_router)
         app.include_router(channel_router)
         app.include_router(api_key_router)
         app.include_router(admin_router)
