@@ -7,8 +7,20 @@ class ProviderAccountRepositoryPort(ABC):
     """Port for loading provider-account credentials and defaults."""
 
     @abstractmethod
+    async def create(self, provider_account: ProviderAccount) -> ProviderAccount:
+        """Persist a provider account."""
+
+        pass
+
+    @abstractmethod
     async def get_by_id(self, provider_account_id: str) -> ProviderAccount | None:
         """Fetch provider account by identifier."""
+
+        pass
+
+    @abstractmethod
+    async def list_by_workspace(self, workspace_id: str) -> list[ProviderAccount]:
+        """List provider accounts for a workspace."""
 
         pass
 
