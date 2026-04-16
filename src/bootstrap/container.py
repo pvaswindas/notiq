@@ -38,6 +38,7 @@ from src.modules.notifications.application.services.provider_account_resolver im
 from src.modules.notifications.application.services.sender_registry import SenderRegistry
 from src.modules.notifications.application.use_cases.process_delivery_job_use_case import ProcessDeliveryJobUseCase
 from src.modules.notifications.application.use_cases.send_notification_use_case import SendNotificationUseCase
+from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
 from src.modules.notifications.domain.services.idempotency_service import IdempotencyService
 
 
@@ -45,6 +46,7 @@ from src.modules.notifications.domain.services.idempotency_service import Idempo
 class Container:
     """Aggregate root for runtime dependencies used by API and worker entrypoints."""
 
+    id_generator: IdGeneratorPort
     send_notification_use_case: SendNotificationUseCase
     process_delivery_job_use_case: ProcessDeliveryJobUseCase
     create_workspace_use_case: CreateWorkspaceUseCase
@@ -154,6 +156,7 @@ class ContainerFactory:
         )
 
         return Container(
+            id_generator=id_generator,
             send_notification_use_case=send_notification_use_case,
             process_delivery_job_use_case=process_delivery_job_use_case,
             create_workspace_use_case=create_workspace_use_case,

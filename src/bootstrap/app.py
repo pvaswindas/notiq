@@ -7,7 +7,6 @@ from src.adapters.http.controllers.api_key_controller import ApiKeyControllerFac
 from src.adapters.http.events_router import EventRouterFactory
 from src.adapters.http.workspace_controller import WorkspaceControllerFactory
 from src.bootstrap.container import ContainerFactory
-from src.bootstrap.event_ingestion_container import EventIngestionContainerFactory
 from src.modules.notifications.adapters.inbound.http.routes import NotificationRouterFactory
 
 
@@ -16,14 +15,14 @@ class ApplicationFactory:
 
     def create(self) -> FastAPI:
         container = ContainerFactory().build()
-        event_ingestion_container = EventIngestionContainerFactory().build()
         app = FastAPI(title="Notiq")
 
         notification_router = NotificationRouterFactory(
             send_notification_use_case=container.send_notification_use_case,
         ).build()
         events_router = EventRouterFactory(
-            process_event_use_case=event_ingestion_container.process_event_use_case,
+            send_notification_use_case=container.send_notification_use_case,
+            id_generator=container.id_generator,
         ).build()
         workspace_router = WorkspaceControllerFactory(
             create_workspace_use_case=container.create_workspace_use_case,

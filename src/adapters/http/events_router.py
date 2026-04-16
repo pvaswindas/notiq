@@ -1,11 +1,13 @@
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.adapters.http.dependencies.auth import AuthContext, require_auth
-from src.application.use_cases.process_event_use_case import ProcessEventUseCase
-from src.domain.entities.event import Event
+from src.modules.notifications.application.dto.send_notification_command import SendNotificationCommand
+from src.modules.notifications.application.use_cases.send_notification_use_case import SendNotificationUseCase
+from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
 
 
 class EventIngestionRequest(BaseModel):
@@ -42,19 +44,25 @@ class EventRouterFactory:
     """Build HTTP routes for the legacy `/events` compatibility endpoint.
 
     Architectural role:
-    - Inbound adapter that translates HTTP payloads into application use-case
-      calls without containing routing or delivery business policies.
+    - Inbound adapter that preserves the legacy `/events` contract while
+      routing execution into the modular notification pipeline.
     """
 
-    def __init__(self, process_event_use_case: ProcessEventUseCase) -> None:
-        """Store process-event use case dependency for route handler calls.
+    def __init__(
+        self,
+        send_notification_use_case: SendNotificationUseCase,
+        id_generator: IdGeneratorPort,
+    ) -> None:
+        """Store modular dependencies used to serve legacy event ingestion.
 
         Args:
-            process_event_use_case: Application use case that handles channel
-                fan-out and event queue enqueueing.
+            send_notification_use_case: Primary notification intake use case.
+            id_generator: Generates compatibility event identifiers.
         """
 
-        self._process_event_use_case = process_event_use_case
+        self._send_notification_use_case = send_notification_use_case
+        self._id_generator = id_generator
+        self._logger = logging.getLogger(__name__)
 
     def build(self) -> APIRouter:
         """Create and return API router for legacy event ingestion.
@@ -63,8 +71,8 @@ class EventRouterFactory:
             APIRouter: Router exposing `POST /events`.
 
         Important:
-        - This adapter should only validate/translate protocol concerns.
-        - Business orchestration must remain in `ProcessEventUseCase`.
+        - This adapter preserves the legacy request/response contract.
+        - Business orchestration is delegated to `SendNotificationUseCase`.
         """
 
         router = APIRouter(tags=["events"])
@@ -74,7 +82,7 @@ class EventRouterFactory:
             request: EventIngestionRequest,
             auth: AuthContext = Depends(require_auth),
         ) -> EventIngestionResponse:
-            """Accept a legacy event and enqueue per-channel tasks.
+            """Accept a legacy event and enqueue modular delivery jobs.
 
             Args:
                 request: Validated HTTP request payload.
@@ -83,21 +91,31 @@ class EventRouterFactory:
                 EventIngestionResponse: Static acceptance response.
 
             Internal flow:
-            - Map request to legacy domain `Event`.
-            - Execute compatibility use case fan-out behavior.
+            - Resolve workspace from authenticated API key context.
+            - Map legacy request into modular send-notification command.
+            - Execute modular intake flow that persists `delivery_jobs`.
             - Normalize known validation failures to HTTP 400.
 
             Edge cases:
             - Unexpected runtime errors are mapped to HTTP 500.
             """
 
-            event = Event(
+            command = SendNotificationCommand(
                 workspace_id=auth.workspace_id,
-                event_type=request.event_type,
+                event_id=self._id_generator.new_id(),
+                event_name=request.event_type,
                 payload=request.payload,
             )
             try:
-                await self._process_event_use_case.execute(event)
+                self._logger.info(
+                    "legacy /events endpoint routed to modular notification pipeline",
+                    extra={
+                        "workspace_id": auth.workspace_id,
+                        "api_key_id": auth.api_key_id,
+                        "event_type": request.event_type,
+                    },
+                )
+                await self._send_notification_use_case.execute(command)
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from exc
             except Exception as exc:
