@@ -1,9 +1,9 @@
-# List Channels API
+# List Provider Accounts API
 
 ## 1. Endpoint and Method
 - Method: `GET`
-- Path: `/channels`
-- Handler: `ChannelControllerFactory.list_channels`
+- Path: `/provider-accounts`
+- Handler: `ProviderAccountControllerFactory.list_provider_accounts`
 
 ## 2. Headers
 - `Content-Type: application/json` (recommended)
@@ -15,16 +15,9 @@
 
 ### Example Request
 ```http
-GET /channels?workspace_id=ws_abc123 HTTP/1.1
+GET /provider-accounts?workspace_id=ws_abc123 HTTP/1.1
 Host: localhost:8000
 Authorization: Bearer notiq_xxx
-```
-
-### Example Request JSON (Query Parameters)
-```json
-{
-  "workspace_id": "ws_abc123"
-}
 ```
 
 ## 4. Response
@@ -32,16 +25,11 @@ Authorization: Bearer notiq_xxx
 ```json
 [
   {
-    "id": "ch_5a5f6e7e7d4f4eb4b8d4a5d7",
+    "id": "pa_telegram_ops",
     "workspace_id": "ws_abc123",
     "provider": "telegram",
-    "provider_account_id": "pa_telegram_ops",
-    "destination": "-1001234567890",
-    "metadata": {
-      "purpose": "ops-alerts"
-    },
     "is_active": true,
-    "created_at": "2026-04-16T10:15:00+00:00"
+    "created_at": "2026-04-16T10:10:00+00:00"
   }
 ]
 ```
@@ -54,10 +42,10 @@ Authorization: Bearer notiq_xxx
 ## 5. Internal Processing Flow After Request
 1. Validate query parameter and authenticated API key.
 2. Enforce workspace ownership.
-3. `ListManagedChannelsUseCase` verifies the workspace exists.
-4. Repository loads channels scoped to the workspace.
-5. Route maps domain channels to the HTTP response shape.
+3. `ListProviderAccountsUseCase` validates the workspace exists.
+4. Repository loads provider accounts for that workspace.
+5. Route returns a transport-safe list that deliberately omits credentials.
 
 ## 6. What To Do Next
-- Use channel IDs to target `/notifications/send` with `channel_ids`.
-- Disable channels that should no longer receive deliveries.
+- Use the list to choose which provider account should back a new managed channel.
+- Use `GET /provider-accounts/{provider_account_id}` when validating a specific account reference.
