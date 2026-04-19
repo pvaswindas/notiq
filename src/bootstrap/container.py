@@ -52,7 +52,25 @@ from src.modules.notifications.domain.services.idempotency_service import Idempo
 
 @dataclass(slots=True)
 class Container:
-    """Aggregate root for runtime dependencies used by API and worker entrypoints."""
+    """Runtime dependency graph shared by API and worker entrypoints.
+
+    Purpose:
+    - Expose fully wired use cases and runtime services from one composition
+      root so transport layers do not instantiate infrastructure directly.
+
+    Responsibilities:
+    - Hold the notification intake and processing use cases.
+    - Hold compatibility-facing workspace management use cases.
+    - Hold the worker orchestration object used by `src.run_worker`.
+
+    Architectural role:
+    - Immutable container returned by `ContainerFactory.build()` after all
+      infrastructure adapters and services have been composed.
+
+    Important constraints:
+    - This class is only a dependency carrier; it must not implement business
+      logic or runtime branching.
+    """
 
     id_generator: IdGeneratorPort
     send_notification_use_case: SendNotificationUseCase
@@ -71,14 +89,43 @@ class Container:
 
 
 class ContainerFactory:
-    """Compose concrete adapters and use cases for the running process."""
+    """Compose concrete adapters and use cases for the running process.
+
+    Purpose:
+    - Act as the application's composition root for both API and worker
+      runtimes.
+
+    Responsibilities:
+    - Instantiate concrete repositories, provider senders, validators, and
+      safety services.
+    - Bind those implementations to application use cases.
+    - Return a `Container` that can be consumed by runtime entrypoints.
+
+    Architectural role:
+    - The only place where infrastructure implementation choice should be
+      decided for the notification module.
+
+    Important constraints:
+    - Must not absorb feature logic that belongs in use cases.
+    - Must keep wiring explicit so dependency direction remains obvious.
+    """
 
     def build(self) -> Container:
         """Build and return a fully wired container.
 
-        This is the composition root for the notifications module. It binds
-        infrastructure adapters to application ports and returns ready-to-use
-        use cases plus worker orchestration components.
+        This function:
+        - Instantiates infrastructure adapters and policy services.
+        - Wires notification, compatibility, and admin-facing use cases.
+        - Returns runtime-ready dependencies for API and worker entrypoints.
+
+        Returns:
+            Container: Fully constructed dependency graph for the current
+                process.
+
+        Important:
+        - This is the composition root for the notifications module.
+        - Infrastructure adapters are selected here so application code can
+          depend only on ports and services.
         """
 
         notification_workspace_repository = NotificationsPostgresWorkspaceRepository()
