@@ -19,6 +19,25 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    """Migrate provider credentials and delivery payloads to structured JSON.
+
+    This function:
+    - Adds `provider_accounts.credentials` as JSONB and backfills existing
+      string references into a structured payload.
+    - Removes the legacy `credentials_ref` column.
+    - Adds `delivery_jobs.event_payload` as JSONB and backfills it from the
+      stored delivery message for previously created jobs.
+
+    Returns:
+        None
+
+    Important:
+    - The migration preserves retryability by storing delivery context in the
+      durable job record.
+    - Existing provider-account rows are normalized so new code can depend on
+      `credentials` being present.
+    """
+
     op.add_column(
         "provider_accounts",
         sa.Column(
@@ -60,6 +79,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Restore the pre-JSON credential layout and remove event payload storage.
+
+    This function:
+    - Recreates `credentials_ref` from structured provider credentials.
+    - Drops `provider_accounts.credentials`.
+    - Removes `delivery_jobs.event_payload`.
+
+    Returns:
+        None
+
+    Important:
+    - Downgrade keeps only the credential value that can be projected back into
+      the legacy string column, so structured provider data may be reduced.
+    """
+
     op.add_column("provider_accounts", sa.Column("credentials_ref", sa.String(length=255), nullable=True))
     op.execute(
         """
