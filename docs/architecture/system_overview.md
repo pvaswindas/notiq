@@ -1,42 +1,43 @@
 # Notiq System Overview
 
 ## What The System Does
-Notiq is a multi-tenant notification platform that accepts product events, resolves workspace-specific routing, and executes provider delivery asynchronously.
+Notiq is a multi-tenant notification platform that accepts application events, turns them into durable delivery work, and sends them through provider adapters such as Telegram and Email.
 
-The running API exposes two ingestion families:
-- Primary modular endpoint: `POST /notifications/send`.
-- Compatibility endpoints: `POST /events`, workspace/channel management, and API-key management.
-- Administrative RBAC endpoints under `/admin` for operator authentication and access control management.
+At runtime the system exposes three API families:
+- Notification intake: `POST /notifications/send` and the legacy compatibility endpoint `POST /events`.
+- Workspace-scoped management: workspaces, provider accounts, channels, and API keys.
+- Platform administration: `/admin/*` endpoints for RBAC, rate-limit configuration, and audit visibility.
 
 ## Why The System Exists
-Notiq centralizes hard reliability and safety concerns that are expensive to duplicate across product services:
-- Workspace isolation.
-- Deterministic idempotency.
-- Asynchronous delivery with retries.
-- Provider-account resolution and sender abstraction.
-- Operational traceability of delivery attempts.
-- Administrative governance (admin identities, roles, and permissions) for controlled platform operations.
+The platform exists so product services do not need to solve the same operational problems repeatedly inside feature code:
+- Multi-tenant routing and isolation.
+- Safe provider credential ownership.
+- Idempotent event intake.
+- Durable asynchronous delivery and retries.
+- Delivery throttling.
+- Auditability for operational changes.
 
-This allows product services to emit events while Notiq owns delivery orchestration.
+Without this separation, provider SDKs, retry policy, and tenant-specific configuration would leak into product services and become hard to evolve safely.
 
 ## Architecture Style
-The repository is a modular monolith with hexagonal boundaries.
+Notiq is a modular monolith that applies hexagonal architecture around the notification pipeline.
 
-Primary production orchestration is under `src/modules/notifications` with clean layers:
-- `domain`: core notification language and invariants.
-- `application`: use-case orchestration.
-- `ports`: stable contracts.
-- `adapters`: protocol translators.
-- `infrastructure`: concrete implementations.
-- `bootstrap`: composition roots.
+The architectural center of gravity is `src/modules/notifications`:
+- `domain` defines notification language and invariants.
+- `application` coordinates intake and delivery execution.
+- `ports` define required side effects.
+- `adapters` translate HTTP and provider protocols.
+- `infrastructure` implements persistence, Redis-backed safety checks, and ID generation.
+- `bootstrap` wires concrete dependencies for API and worker runtimes.
 
-Legacy HTTP compatibility remains only at the `/events` adapter boundary; notification execution itself is unified under `src/modules/notifications`.
+Compatibility and admin code still lives outside the notifications module, but both surfaces route into the same persistence model and infrastructure foundations. New production delivery behavior should be added to the notifications module first.
 
 ## High-Level Runtime Topology
-1. API process starts via `src/main.py` and wires routes in `src/bootstrap/app.py`.
-2. Notification intake persists delivery jobs in PostgreSQL.
-3. Delivery jobs are processed asynchronously by worker logic (`ProcessDeliveryJobUseCase`) and sender adapters.
-4. Compatibility `/events` requests are translated into the same modular intake flow before job persistence.
+1. `src/main.py` starts FastAPI through `src/bootstrap/app.py`.
+2. `ContainerFactory` wires repositories, provider senders, validators, and use cases.
+3. Intake endpoints call `SendNotificationUseCase`, which validates workspace state, resolves channels and provider accounts, claims idempotency keys, and persists `delivery_jobs`.
+4. `src/run_worker.py` starts `NotificationWorker`, which claims due jobs in batches and hands each claimed job to `ProcessDeliveryJobUseCase`.
+5. `ProcessDeliveryJobUseCase` enforces delivery safety rules, sends through the correct provider adapter, and persists `SUCCESS`, retryable `PENDING`, or terminal `FAILED`.
 
 ## Public API Surface
 - `POST /notifications/send`
@@ -44,10 +45,12 @@ Legacy HTTP compatibility remains only at the `/events` adapter boundary; notifi
 - `POST /workspaces`
 - `GET /workspaces/{workspace_id}`
 - `GET /workspaces`
-- `POST /workspaces/{workspace_id}/channels`
-- `GET /workspaces/{workspace_id}/channels`
-- `PUT /channels/{channel_id}`
-- `PATCH /channels/{channel_id}/disable`
+- `POST /provider-accounts`
+- `GET /provider-accounts`
+- `GET /provider-accounts/{provider_account_id}`
+- `POST /channels`
+- `GET /channels`
+- `PATCH /channels/{channel_id}`
 - `POST /workspaces/{workspace_id}/api-keys`
 - `GET /workspaces/{workspace_id}/api-keys`
 - `PATCH /api-keys/{api_key_id}/disable`
@@ -63,10 +66,16 @@ Legacy HTTP compatibility remains only at the `/events` adapter boundary; notifi
 - `GET /admin/permissions`
 - `POST /admin/roles/{role_id}/permissions`
 - `GET /admin/roles/{role_id}/permissions`
+- `PATCH /admin/workspaces/{workspace_id}/disable`
+- `POST /admin/rate-limit-configs`
+- `PUT /admin/rate-limit-configs/{config_id}`
+- `DELETE /admin/rate-limit-configs/{config_id}`
+- `GET /admin/audit-logs`
+- `GET /admin/audit-logs/{resource}/{resource_id}`
 
-## Core Architectural Intent
-- Keep policy decisions in use cases and domain services.
+## Architectural Intent
+- Accept requests quickly, then hand off provider work to durable asynchronous processing.
+- Keep provider credentials and delivery payloads durable so workers can retry without reconstructing external context.
+- Keep policy decisions in use cases and domain services, not in HTTP routes or repositories.
 - Keep infrastructure replaceable behind ports.
-- Keep API adapters thin and protocol-focused.
-- Preserve compatibility endpoints without allowing alternate execution paths.
-- Keep RBAC authorization decisions explicit and documented for every admin endpoint.
+- Preserve compatibility contracts without creating a second business workflow.

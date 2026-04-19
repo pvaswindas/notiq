@@ -7,17 +7,20 @@ Describe the primary notification-intake flow that turns one inbound event into 
 1. Client sends `workspace_id`, `event_id`, `event_name`, optional `payload`, and optional `channel_ids`.
 2. HTTP route validates shape via `SendNotificationRequest` and creates `SendNotificationCommand`.
 3. `SendNotificationUseCase.execute` validates required identifiers.
-4. Workspace is loaded and must exist + be active.
+4. Workspace is loaded and must exist and be active.
 5. Active channels are loaded for the workspace.
-6. If `channel_ids` is provided, channels are filtered to that subset.
-7. Event fingerprint is created from event identity.
-8. For each selected channel:
-   - Resolve provider account (explicit channel account first, then defaults).
-   - Build channel-level dedupe fingerprint.
-   - Attempt atomic idempotency claim.
-   - If claim succeeds, map message and persist `DeliveryJob` in `PENDING`.
-   - If claim fails, increment duplicate counter and skip.
-9. API returns summary: `enqueued_jobs` and `skipped_duplicates`.
+6. If `channel_ids` is provided, the route scope is narrowed to the matching active channels only.
+7. An immutable domain `Event` is constructed from request data.
+8. `IdempotencyService` creates a stable event fingerprint.
+9. For each selected channel:
+   - `ProviderAccountResolver` validates which provider account will be used.
+   - A channel-level fingerprint is derived from the event fingerprint plus `channel_id`.
+   - The idempotency repository attempts an atomic claim.
+   - If the claim fails, that channel path is counted as a duplicate and no job is created.
+   - If the claim succeeds, `EventMessageMapper` generates the outbound message.
+   - A `DeliveryJob` is created with destination, provider, provider account, message, and the full event payload.
+   - The job is persisted in `PENDING`.
+10. The endpoint returns `enqueued_jobs` and `skipped_duplicates`.
 
 ## Internal Decisions
 ### Routing
@@ -25,7 +28,7 @@ Describe the primary notification-intake flow that turns one inbound event into 
 - `channel_ids` narrows but does not expand channel selection.
 
 ### Account Resolution
-- Explicit invalid/missing channel account is treated as a hard misconfiguration for that channel path.
+- Explicit invalid or missing channel accounts are treated as hard misconfiguration for that channel path.
 
 ### Duplicate Handling
 - Duplicate suppression is channel-scoped.
@@ -33,8 +36,8 @@ Describe the primary notification-intake flow that turns one inbound event into 
 
 ## Failure Handling
 - `422`: Request payload violates schema constraints.
-- `500`: Uncaught use-case failures (for example workspace/account errors) currently bubble from route layer.
+- `500`: Route does not normalize use-case `ValueError` or `LookupError`, so validation and misconfiguration failures currently bubble as server errors.
 - Duplicate claims are not errors; they are reported in `skipped_duplicates`.
 
 ## Flow Continuation
-`PENDING` jobs move to asynchronous execution handled by worker processing (`docs/flows/processing_flow.md`).
+`PENDING` jobs move to asynchronous execution handled by worker processing in `docs/flows/processing_flow.md`.

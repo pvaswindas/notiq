@@ -1,67 +1,79 @@
 # Design Principles
 
 ## 1. Accept Fast, Deliver Asynchronously
-WHY:
-- Provider calls are unreliable and high-latency.
+Why:
+- Provider APIs are slow, failure-prone, and outside the control of the calling product.
 
-HOW:
-- Intake endpoints acknowledge acceptance after orchestration/persistence steps, not after provider delivery.
+How:
+- Intake endpoints stop at validation, routing, dedupe, and job persistence.
+- External sending happens later in the worker runtime.
 
-CONSTRAINT:
-- Client-facing success means queued/accepted, not guaranteed external delivery.
+Constraint:
+- A successful intake response means "accepted into the delivery pipeline," not "provider confirmed delivery."
 
-## 2. Deterministic Idempotency
-WHY:
-- Upstream retries are normal; duplicates must be controlled.
+## 2. Persist Enough Context To Retry Safely
+Why:
+- Workers must be able to retry delivery without reconstructing upstream request context or re-reading mutable provider secrets from unrelated places.
 
-HOW:
-- Fingerprint event context and channel scope.
-- Claim dedupe keys atomically before creating delivery work.
+How:
+- `provider_accounts.credentials` stores structured credentials as JSON.
+- `delivery_jobs.event_payload` stores the event payload used for outbound delivery.
 
-CONSTRAINT:
-- Fingerprint inputs and canonicalization must remain stable across deployments.
+Constraint:
+- New providers should store credentials in structured form, not opaque ad hoc string fields.
 
-## 3. Strict Workspace Isolation
-WHY:
-- Notiq is multi-tenant and must prevent cross-tenant leakage.
+## 3. Deterministic Idempotency
+Why:
+- Upstream retries are expected and duplicate fan-out must be controlled.
 
-HOW:
-- Workspace-scoped repository access and auth context checks.
-- Workspace ownership checks on API-key and channel operations.
+How:
+- Build an event fingerprint from stable event inputs.
+- Build a channel-level fingerprint from the event fingerprint plus channel identity.
+- Claim the dedupe key before persisting the job.
 
-CONSTRAINT:
-- New features default to workspace-scoped behavior unless explicitly global and justified.
+Constraint:
+- Fingerprint inputs must remain stable. Seemingly small changes to canonicalization can create duplicate deliveries.
 
-## 4. Replaceable Integrations
-WHY:
-- Provider and persistence technology choices evolve.
+## 4. Strict Workspace Isolation
+Why:
+- Notiq is multi-tenant and tenant mistakes are architectural failures, not minor bugs.
 
-HOW:
-- Use-case logic targets ports.
-- Adapter implementation choice stays in bootstrap/container wiring.
+How:
+- Workspace checks happen in use cases and auth dependencies.
+- Channels, provider accounts, and API keys are validated against the caller's workspace.
 
-CONSTRAINT:
-- Changing an integration should not require domain model rewrites.
+Constraint:
+- Global behavior is the exception. If something is allowed outside workspace scope, it must be deliberate and documented.
 
-## 5. Explicit Failure Semantics
-WHY:
-- Operators need predictable runtime behavior under errors.
+## 5. Replaceable Integrations
+Why:
+- Provider and infrastructure choices will change over the life of the system.
 
-HOW:
-- Delivery state machine (`PENDING`, `PROCESSING`, `SUCCESS`, `FAILED`).
-- Retry classification for transient failures.
-- Structured error capture for terminal failures.
+How:
+- Use cases depend on ports.
+- Concrete implementations are chosen only in bootstrap wiring.
 
-CONSTRAINT:
-- Any retry/status change requires docs + migration/operational impact review.
+Constraint:
+- Application code must remain valid even if Postgres, Redis, or a provider adapter is swapped out.
 
-## 6. Compatibility Without Architectural Regression
-WHY:
-- Existing clients still depend on legacy endpoints.
+## 6. Explicit Failure Semantics
+Why:
+- Operators need predictable behavior under partial outages and misconfiguration.
 
-HOW:
-- Keep compatibility behavior isolated and documented.
-- Avoid growing legacy paths for net-new architecture work.
+How:
+- Delivery work moves through a documented state machine.
+- Retryable and terminal failures are classified centrally in `ProcessDeliveryJobUseCase`.
+- Rate-limit deferrals are persisted as a normal scheduling outcome, not hidden in memory.
 
-CONSTRAINT:
-- Compatibility changes must preserve current contract and idempotency safety.
+Constraint:
+- Changes to retry timing, state transitions, or error capture must be reflected in both code and documentation.
+
+## 7. Compatibility Without Architectural Regression
+Why:
+- Existing clients still rely on `/events` and other compatibility-era endpoints.
+
+How:
+- Compatibility adapters translate old shapes into the current use cases instead of keeping a second workflow alive.
+
+Constraint:
+- Net-new notification capabilities should land in the modular notifications layer first, then be exposed through compatibility paths only if truly needed.

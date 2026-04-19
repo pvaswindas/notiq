@@ -3,16 +3,15 @@
 ## Scope
 The canonical production domain for notifications lives under `src/modules/notifications/domain`.
 
-Compatibility domain objects exist under `src/domain` and are maintained only for legacy route/task behavior.
+Compatibility domain objects also exist under `src/domain`, but they are maintained only for legacy route and admin behavior. New notification modeling should target the notifications module first.
 
 ## Primary Entities
-
 ### Workspace
 Why it exists:
-- Defines tenant boundary and activation gate.
+- Defines the tenant boundary and activation gate.
 
 What problem it solves:
-- Ensures all routing and execution are scoped to a tenant context.
+- Ensures all routing and execution are scoped to one tenant context.
 
 How it interacts:
 - Parent context for channels, provider-account defaults, and delivery jobs.
@@ -22,29 +21,31 @@ Why it exists:
 - Represents a delivery route configuration owned by a workspace.
 
 What problem it solves:
-- Separates destination/provider configuration from event payloads.
+- Separates destination and provider-account selection from the event itself.
 
 How it interacts:
 - Selected during fan-out.
 - Supplies provider key, destination, and optional explicit provider account.
+- Acts as the configuration source from which `DeliveryJob` routing fields are copied.
 
 ### ProviderAccount
 Why it exists:
 - Encapsulates provider credential ownership and activation status.
 
 What problem it solves:
-- Enables credential rotation and defaulting without mutating channels/events.
+- Enables credential rotation, workspace scoping, and default-account fallback without mutating channels or historical jobs.
 
 How it interacts:
 - Resolved per channel by `ProviderAccountResolver`.
 - Used during send execution by outbound sender adapters.
+- Stores structured `credentials` JSON so different providers can evolve their credential shapes safely.
 
 ### Event
 Why it exists:
 - Holds immutable event identity and payload used by intake orchestration.
 
 What problem it solves:
-- Provides stable input for message mapping and fingerprint computation.
+- Provides stable input for fingerprint computation and outbound message generation.
 
 How it interacts:
 - Combined with channels to generate channel-scoped delivery work.
@@ -54,23 +55,24 @@ Why it exists:
 - Durable executable unit for asynchronous provider delivery.
 
 What problem it solves:
-- Decouples API acceptance from provider latency and failure modes.
+- Decouples API acceptance from provider latency and failure modes while preserving enough routing and payload context to retry later.
 
 How it interacts:
-- Created in intake use case.
-- Claimed and transitioned by processing use case.
+- Created in the intake use case.
+- Claimed and transitioned by the processing use case.
 - Tracks retries, lease ownership, and final state.
+- Carries `event_payload`, which is the source of truth for outbound delivery retries.
 
 ### ApiKey (Compatibility Auth Domain)
 Why it exists:
-- Models workspace-scoped machine credentials for compatibility APIs.
+- Models workspace-scoped machine credentials for compatibility and management APIs.
 
 What problem it solves:
-- Allows non-human services to authenticate ingestion/management requests.
+- Allows non-human services to authenticate ingestion and workspace-scoped management requests.
 
 How it interacts:
-- Auth service validates hashed key material and projects `AuthenticatedPrincipal`.
-- `/events` and API-key management routes derive workspace access control from this model.
+- Auth service validates hashed key material and projects `AuthContext`.
+- `/events`, channel, provider-account, and API-key routes derive workspace access control from this model.
 
 ### Admin (Administrative Domain)
 Why it exists:
@@ -96,17 +98,18 @@ How it interacts:
 
 ### Permission (Administrative Domain)
 Why it exists:
-- Defines atomic allowed admin actions (for example `manage_admins`).
+- Defines atomic allowed admin actions such as `manage_admins` or `view_audit_logs`.
 
 What problem it solves:
 - Provides explicit, auditable authorization semantics for each privileged endpoint.
 
 How it interacts:
 - Assigned to roles.
-- Evaluated by `RbacService` in `require_permission(...)`.
+- Evaluated by `RbacService` through admin auth dependencies.
 
 ## Relationships
 - `Workspace 1 -> N Channel`
+- `Workspace 1 -> N ProviderAccount`
 - `Workspace 1 -> N DeliveryJob`
 - `Channel 1 -> N DeliveryJob`
 - `ProviderAccount 1 -> N DeliveryJob`
@@ -115,18 +118,12 @@ How it interacts:
 - `Admin N <-> N Role`
 - `Role N <-> N Permission`
 
-## Value Objects and Domain Services
+## Value Objects And Domain Services
 - `ProviderKey`: normalizes provider identity.
 - `EventFingerprint`: typed representation of deterministic event hash.
 - `IdempotencyService`: creates event and channel fingerprints.
 
-## Compatibility Domain Notes
-Legacy `/events` flow uses:
-- `src/domain/entities/event.py`
-- `src/domain/entities/channel.py`
-- `src/domain/rate_limit/entities.py`
-- Compatibility auth/admin models also exist outside the notifications module:
-  - `src/domain/auth/entities.py`
-  - `src/domain/admin/entities.py`
-
-These are compatibility models and must not become the default modeling target for new primary notification capabilities.
+## Modeling Guidance
+- Add new notification concepts under `src/modules/notifications/domain` unless the change is explicitly compatibility-only.
+- Prefer storing provider-specific shape in structured dictionaries that are validated at the application boundary, not as hard-coded columns per provider.
+- Keep entity fields stable once they become persistence contracts, especially `DeliveryJob` fields that workers depend on across process boundaries.

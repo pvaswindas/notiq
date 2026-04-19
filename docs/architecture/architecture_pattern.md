@@ -1,76 +1,117 @@
 # Architecture Pattern
 
 ## Selected Pattern
-Notiq uses Hexagonal Architecture inside a modular monolith.
+Notiq uses hexagonal architecture within a modular monolith.
+
+This means the system is deployed as one application, but the notification pipeline is still designed as if its core logic must survive framework, database, and provider changes.
 
 ## Why This Pattern Fits
-- Notification delivery policies must stay stable while providers, queues, and persistence choices evolve.
-- The system has multiple inbound protocols (HTTP and worker polling) and outbound integrations (provider APIs, Postgres, Redis).
-- Strong boundaries reduce accidental coupling and make extension safer.
+- Notification policy changes more slowly than transport and provider integrations.
+- The system has two inbound execution styles: synchronous HTTP intake and asynchronous worker execution.
+- The system has several outbound concerns: Postgres persistence, Redis-backed rate limiting, and provider API calls.
+- New engineers need obvious extension seams so they can add providers or management APIs without weakening delivery guarantees.
 
-## Primary Module Structure
+## Layer Responsibilities
 ### Domain (`src/modules/notifications/domain`)
-Purpose:
-- Define immutable entities, value objects, and policy services.
+What it does:
+- Defines entities such as `Workspace`, `Channel`, `ProviderAccount`, and `DeliveryJob`.
+- Encodes core invariants such as retry count validity and normalized notification language.
+- Provides pure domain services like idempotency fingerprint generation.
 
-MUST:
-- Express business language and invariants.
-
-MUST NOT:
-- Know anything about HTTP, SQLAlchemy, Redis, or SDK clients.
+Why it exists:
+- This is the only layer that should describe notification concepts without caring how data is stored or transported.
 
 ### Application (`src/modules/notifications/application`)
-Purpose:
-- Orchestrate use-case decisions and lifecycle transitions.
+What it does:
+- Turns commands into business outcomes.
+- Coordinates repository calls, provider-account resolution, message mapping, and job state transitions.
+- Owns the execution order of validation, dedupe, throttling, retry, and persistence.
 
-MUST:
-- Coordinate domain objects and ports in explicit sequence.
-
-MUST NOT:
-- Import concrete repositories/senders.
-- Contain transport or persistence implementation details.
+Why it exists:
+- The application layer is where policy becomes an executable workflow, while still staying independent of concrete infrastructure.
 
 ### Ports (`src/modules/notifications/ports`)
-Purpose:
-- Define integration contracts and behavioral expectations.
+What it does:
+- Declares the contracts the application needs from the outside world.
 
-MUST:
-- Remain technology-agnostic.
+Why it exists:
+- Ports keep the business workflow stable while repository or provider implementations change.
 
-MUST NOT:
-- Embed framework-specific assumptions.
+### Adapters (`src/modules/notifications/adapters`, `src/adapters/http`)
+What it does:
+- Converts HTTP requests into commands and use-case inputs.
+- Converts provider-specific APIs into the outbound sender contract.
 
-### Adapters (`src/modules/notifications/adapters`)
-Purpose:
-- Translate between external protocols and application contracts.
+Why it exists:
+- Adapters isolate protocol details and compatibility concerns from the business workflow.
 
-MUST:
-- Handle schema mapping, protocol validation, and serialization.
+### Infrastructure (`src/infrastructure`)
+What it does:
+- Implements persistence repositories, Redis-backed rate limiting, SQLAlchemy models, and supporting runtime utilities.
 
-MUST NOT:
-- Recreate business policy sequencing.
+Why it exists:
+- This layer owns side effects and operational mechanics, but should never redefine policy that belongs to the application or domain layer.
 
-### Infrastructure + Bootstrap (`src/infrastructure`, `src/bootstrap`)
-Purpose:
-- Implement ports and compose runtime object graphs.
+### Bootstrap (`src/bootstrap`, runtime entrypoints)
+What it does:
+- Assembles the object graph for the API and worker processes.
 
-MUST:
-- Keep wiring in composition roots.
+Why it exists:
+- A single composition root makes dependencies explicit and prevents controllers or use cases from self-instantiating infrastructure.
 
-MUST NOT:
-- Push infrastructure concerns back into domain/application layers.
+## DOs And DON'Ts
+### Domain
+DO:
+- Add immutable entities and value objects.
+- Keep validation deterministic and framework-free.
 
-## Transitional Compatibility Slice
-Legacy endpoints and tasks still exist for backward compatibility.
+DON'T:
+- Import FastAPI, SQLAlchemy, Redis, `httpx`, or provider SDKs.
+- Read environment variables or open network/database connections.
 
-Guideline:
-- Prefer all new behavior in `src/modules/notifications`.
-- Touch legacy layers only when compatibility contracts require it.
+### Application
+DO:
+- Decide workflow order.
+- Call ports and pure services explicitly.
+- Keep retry, routing, and throttling decisions centralized.
 
-## Extension Decision Rule
-Use this order for new capabilities:
-1. Model behavior in domain/application.
-2. Add or refine port contracts.
-3. Implement adapters/infrastructure.
-4. Wire in bootstrap.
-5. Update docs and docstrings in the same change.
+DON'T:
+- Instantiate concrete repositories or provider senders.
+- Depend on ORM models or HTTP request objects.
+
+### Adapters
+DO:
+- Translate external payloads and map errors to protocol responses.
+- Preserve compatibility contracts when old routes still exist.
+
+DON'T:
+- Re-implement dedupe, retry, or delivery policy.
+- Reach around use cases directly into unrelated repositories unless the adapter is explicitly a compatibility boundary.
+
+### Infrastructure
+DO:
+- Handle transactions, row locking, persistence mapping, and client integration details.
+- Preserve durability for provider credentials and delivery payloads.
+
+DON'T:
+- Leak SQLAlchemy models across layer boundaries.
+- Introduce behavior that disagrees with documented use-case sequencing.
+
+### Bootstrap
+DO:
+- Own runtime wiring and environment-backed configuration.
+
+DON'T:
+- Become a second application layer.
+
+## Compatibility Slice
+Legacy and admin surfaces still exist outside `src/modules/notifications`. They are allowed to remain for contract continuity, but they should route into shared services, persistence, and policy rather than inventing separate notification logic.
+
+## Safe Extension Rule
+For new behavior, prefer this sequence:
+1. Model or clarify the business concept.
+2. Update the use case or add a new one.
+3. Extend ports.
+4. Implement infrastructure or provider adapters.
+5. Wire the dependency in `ContainerFactory`.
+6. Update endpoint, flow, and development docs in the same change.
