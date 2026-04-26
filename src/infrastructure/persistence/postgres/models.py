@@ -103,6 +103,33 @@ class DeliveryJobModel(Base):
     )
 
 
+class DeadLetterJobModel(Base):
+    """ORM model for permanently failed delivery jobs captured for inspection/replay."""
+
+    __tablename__ = "dead_letter_jobs"
+
+    dead_letter_job_id: Mapped[str] = mapped_column("id", String(64), primary_key=True)
+    original_job_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("delivery_jobs.job_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.workspace_id", ondelete="CASCADE"), nullable=False)
+    channel_id: Mapped[str] = mapped_column(ForeignKey("channels.channel_id", ondelete="CASCADE"), nullable=False)
+    provider_key: Mapped[str] = mapped_column("provider", String(64), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    failure_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    last_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        Index("ix_dead_letter_jobs_workspace_created", "workspace_id", "created_at"),
+        Index("ix_dead_letter_jobs_workspace_channel", "workspace_id", "channel_id"),
+    )
+
+
 class IdempotencyKeyModel(Base):
     """ORM model that stores claimed dedupe fingerprints."""
 
