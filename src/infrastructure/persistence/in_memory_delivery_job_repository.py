@@ -1,5 +1,6 @@
 import asyncio
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 
 from src.modules.notifications.domain.entities.delivery_job import DeliveryJob, DeliveryJobStatus
 from src.modules.notifications.ports.delivery_job_repository_port import DeliveryJobRepositoryPort
@@ -90,3 +91,46 @@ class InMemoryDeliveryJobRepository(DeliveryJobRepositoryPort):
                 if len(pending_jobs) >= limit:
                     break
             return pending_jobs
+
+    async def claim_due_jobs(self, worker_id: str, limit: int, lease_seconds: int) -> list[DeliveryJob]:
+        now = datetime.now(timezone.utc)
+        lease_until = now + timedelta(seconds=lease_seconds)
+        async with self._lock:
+            claimed: list[DeliveryJob] = []
+            for job in list(self._jobs.values()):
+                if job.status == DeliveryJobStatus.PENDING and (job.next_retry_at is None or job.next_retry_at <= now):
+                    claimed_job = replace(
+                        job,
+                        status=DeliveryJobStatus.PROCESSING,
+                        processing_owner=worker_id,
+                        processing_expires_at=lease_until,
+                    )
+                    self._jobs[job.job_id] = claimed_job
+                    claimed.append(claimed_job)
+                elif (
+                    job.status == DeliveryJobStatus.PROCESSING
+                    and job.processing_expires_at is not None
+                    and job.processing_expires_at <= now
+                ):
+                    claimed_job = replace(
+                        job,
+                        status=DeliveryJobStatus.PROCESSING,
+                        processing_owner=worker_id,
+                        processing_expires_at=lease_until,
+                    )
+                    self._jobs[job.job_id] = claimed_job
+                    claimed.append(claimed_job)
+                if len(claimed) >= limit:
+                    break
+            return claimed
+
+    async def get_by_id(self, job_id: str) -> DeliveryJob | None:
+        async with self._lock:
+            return self._jobs.get(job_id)
+
+    async def get_by_dedupe_key(self, dedupe_key: str) -> DeliveryJob | None:
+        async with self._lock:
+            for job in self._jobs.values():
+                if job.dedupe_key == dedupe_key:
+                    return job
+            return None

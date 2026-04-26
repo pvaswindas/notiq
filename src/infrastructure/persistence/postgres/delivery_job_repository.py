@@ -100,6 +100,21 @@ class PostgresDeliveryJobRepository(DeliveryJobRepositoryPort):
             await session.commit()
             return claimed_jobs
 
+    async def get_by_id(self, job_id: str) -> DeliveryJob | None:
+        async with AsyncSessionLocal() as session:
+            model = await session.get(DeliveryJobModel, job_id)
+            if model is None:
+                return None
+            return self._to_entity(model)
+
+    async def get_by_dedupe_key(self, dedupe_key: str) -> DeliveryJob | None:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(DeliveryJobModel).where(DeliveryJobModel.dedupe_key == dedupe_key))
+            model = result.scalar_one_or_none()
+            if model is None:
+                return None
+            return self._to_entity(model)
+
     @staticmethod
     def _to_entity(model: DeliveryJobModel) -> DeliveryJob:
         """Convert ORM model into immutable domain `DeliveryJob` entity."""

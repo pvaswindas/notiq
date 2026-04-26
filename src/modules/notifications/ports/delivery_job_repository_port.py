@@ -23,3 +23,15 @@ class DeliveryJobRepositoryPort(ABC):
         """Atomically claim due jobs for processing under a worker lease."""
 
         pass
+
+    @abstractmethod
+    async def get_by_id(self, job_id: str) -> DeliveryJob | None:
+        """Return a job by id (no tenant enforcement at this layer)."""
+
+        pass
+
+    @abstractmethod
+    async def get_by_dedupe_key(self, dedupe_key: str) -> DeliveryJob | None:
+        """Return a job by dedupe key (used for replay idempotency)."""
+
+        pass
