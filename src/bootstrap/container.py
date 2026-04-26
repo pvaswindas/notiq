@@ -15,6 +15,7 @@ from src.infrastructure.id_generator.uuid_id_generator import UUIDIdGenerator
 from src.infrastructure.persistence.postgres.channel_repository import (
     PostgresChannelRepository as NotificationsPostgresChannelRepository,
 )
+from src.infrastructure.persistence.postgres.dead_letter_job_repository import PostgresDeadLetterJobRepository
 from src.infrastructure.persistence.postgres.delivery_job_repository import PostgresDeliveryJobRepository
 from src.infrastructure.persistence.postgres.idempotency_repository import PostgresIdempotencyRepository
 from src.infrastructure.persistence.postgres.provider_account_repository import PostgresProviderAccountRepository
@@ -39,12 +40,15 @@ from src.modules.notifications.application.use_cases.create_provider_account_use
 from src.modules.notifications.application.use_cases.disable_managed_channel_use_case import (
     DisableManagedChannelUseCase,
 )
+from src.modules.notifications.application.use_cases.get_dead_letter_job_use_case import GetDeadLetterJobUseCase
 from src.modules.notifications.application.use_cases.get_provider_account_use_case import GetProviderAccountUseCase
+from src.modules.notifications.application.use_cases.list_dead_letter_jobs_use_case import ListDeadLetterJobsUseCase
 from src.modules.notifications.application.use_cases.list_managed_channels_use_case import ListManagedChannelsUseCase
 from src.modules.notifications.application.use_cases.list_provider_accounts_use_case import (
     ListProviderAccountsUseCase,
 )
 from src.modules.notifications.application.use_cases.process_delivery_job_use_case import ProcessDeliveryJobUseCase
+from src.modules.notifications.application.use_cases.replay_dead_letter_job_use_case import ReplayDeadLetterJobUseCase
 from src.modules.notifications.application.use_cases.send_notification_use_case import SendNotificationUseCase
 from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
 from src.modules.notifications.domain.services.idempotency_service import IdempotencyService
@@ -85,6 +89,9 @@ class Container:
     create_channel_use_case: CreateManagedChannelUseCase
     list_channels_use_case: ListManagedChannelsUseCase
     disable_channel_use_case: DisableManagedChannelUseCase
+    list_dead_letter_jobs_use_case: ListDeadLetterJobsUseCase
+    get_dead_letter_job_use_case: GetDeadLetterJobUseCase
+    replay_dead_letter_job_use_case: ReplayDeadLetterJobUseCase
     notification_worker: NotificationWorker
 
 
@@ -133,6 +140,7 @@ class ContainerFactory:
         provider_account_repository = PostgresProviderAccountRepository()
         idempotency_repository = PostgresIdempotencyRepository()
         delivery_job_repository = PostgresDeliveryJobRepository()
+        dead_letter_job_repository = PostgresDeadLetterJobRepository()
         rate_limit_config_repository = PostgresRateLimitConfigRepository()
         delivery_rate_limiter = RedisDeliveryRateLimiter()
         id_generator = UUIDIdGenerator()
@@ -172,8 +180,10 @@ class ContainerFactory:
             sender_registry=sender_registry,
             provider_account_repository=provider_account_repository,
             delivery_job_repository=delivery_job_repository,
+            dead_letter_job_repository=dead_letter_job_repository,
             delivery_safety_service=delivery_safety_service,
             settings=settings,
+            id_generator=id_generator,
         )
         notification_worker = NotificationWorker(
             worker_id=settings.worker_id,
@@ -224,6 +234,13 @@ class ContainerFactory:
             channel_repository=notification_channel_repository,
             audit_logger=audit_logger,
         )
+        list_dead_letter_jobs_use_case = ListDeadLetterJobsUseCase(dead_letter_job_repository=dead_letter_job_repository)
+        get_dead_letter_job_use_case = GetDeadLetterJobUseCase(dead_letter_job_repository=dead_letter_job_repository)
+        replay_dead_letter_job_use_case = ReplayDeadLetterJobUseCase(
+            dead_letter_job_repository=dead_letter_job_repository,
+            delivery_job_repository=delivery_job_repository,
+            id_generator=id_generator,
+        )
 
         return Container(
             id_generator=id_generator,
@@ -239,5 +256,8 @@ class ContainerFactory:
             create_channel_use_case=create_channel_use_case,
             list_channels_use_case=list_channels_use_case,
             disable_channel_use_case=disable_channel_use_case,
+            list_dead_letter_jobs_use_case=list_dead_letter_jobs_use_case,
+            get_dead_letter_job_use_case=get_dead_letter_job_use_case,
+            replay_dead_letter_job_use_case=replay_dead_letter_job_use_case,
             notification_worker=notification_worker,
         )

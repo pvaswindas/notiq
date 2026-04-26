@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from src.adapters.http.admin_controller import AdminControllerFactory
 from src.adapters.http.admin_audit_controller import AdminAuditControllerFactory
 from src.adapters.http.channel_controller import ChannelControllerFactory
+from src.adapters.http.dead_letter_controller import DeadLetterControllerFactory
 from src.adapters.http.provider_account_controller import ProviderAccountControllerFactory
 from src.adapters.http.controllers.api_key_controller import ApiKeyControllerFactory
 from src.adapters.http.events_router import EventRouterFactory
@@ -43,6 +44,11 @@ class ApplicationFactory:
         api_key_router = ApiKeyControllerFactory().build()
         admin_router = AdminControllerFactory().build()
         admin_audit_router = AdminAuditControllerFactory().build()
+        dead_letter_router = DeadLetterControllerFactory(
+            list_dead_letter_jobs_use_case=container.list_dead_letter_jobs_use_case,
+            get_dead_letter_job_use_case=container.get_dead_letter_job_use_case,
+            replay_dead_letter_job_use_case=container.replay_dead_letter_job_use_case,
+        ).build()
 
         app.include_router(notification_router)
         app.include_router(events_router)
@@ -52,5 +58,6 @@ class ApplicationFactory:
         app.include_router(api_key_router)
         app.include_router(admin_router)
         app.include_router(admin_audit_router)
+        app.include_router(dead_letter_router)
 
         return app
