@@ -3,6 +3,8 @@ import logging
 
 from src.modules.notifications.application.use_cases.process_delivery_job_use_case import ProcessDeliveryJobUseCase
 from src.modules.notifications.ports.delivery_job_repository_port import DeliveryJobRepositoryPort
+from src.shared.observability.metrics_service import MetricsService
+from src.shared.observability.structured_logging import log_event, log_exception
 
 
 class NotificationWorker:
@@ -34,6 +36,7 @@ class NotificationWorker:
         worker_id: str,
         delivery_job_repository: DeliveryJobRepositoryPort,
         process_delivery_job_use_case: ProcessDeliveryJobUseCase,
+        metrics_service: MetricsService,
         batch_size: int = 50,
         poll_interval_seconds: float = 1.0,
         lease_seconds: int = 30,
@@ -59,6 +62,7 @@ class NotificationWorker:
         self._worker_id = worker_id
         self._delivery_job_repository = delivery_job_repository
         self._process_delivery_job_use_case = process_delivery_job_use_case
+        self._metrics = metrics_service
         self._batch_size = batch_size
         self._poll_interval_seconds = poll_interval_seconds
         self._lease_seconds = lease_seconds
@@ -87,23 +91,30 @@ class NotificationWorker:
             limit=self._batch_size,
             lease_seconds=self._lease_seconds,
         )
+        self._metrics.increment("jobs_polled")
+        self._metrics.set_gauge("jobs_processed_per_cycle", len(jobs))
         if jobs:
-            self._logger.info(
-                "claimed notification jobs",
-                extra={"worker_id": self._worker_id, "claimed_jobs": len(jobs)},
+            log_event(
+                self._logger,
+                logging.INFO,
+                "worker_jobs_claimed",
+                worker_id=self._worker_id,
+                claimed_jobs=len(jobs),
             )
+        else:
+            self._metrics.increment("worker_idle_cycles")
+            log_event(self._logger, logging.DEBUG, "worker_idle_cycle", worker_id=self._worker_id)
 
         for job in jobs:
             try:
                 await self._process_delivery_job_use_case.execute(job)
-                self._logger.info(
-                    "notification job processed",
-                    extra={"worker_id": self._worker_id, "job_id": job.job_id, "workspace_id": job.workspace_id},
-                )
             except Exception:
-                self._logger.exception(
-                    "unexpected worker failure while processing notification job",
-                    extra={"worker_id": self._worker_id, "job_id": job.job_id, "workspace_id": job.workspace_id},
+                log_exception(
+                    self._logger,
+                    "worker_job_unexpected_failure",
+                    worker_id=self._worker_id,
+                    job_id=job.job_id,
+                    workspace_id=job.workspace_id,
                 )
         return len(jobs)
 
@@ -123,14 +134,14 @@ class NotificationWorker:
           entrypoint or process manager.
         """
 
-        self._logger.info(
-            "notification worker started",
-            extra={
-                "worker_id": self._worker_id,
-                "batch_size": self._batch_size,
-                "poll_interval_seconds": self._poll_interval_seconds,
-                "lease_seconds": self._lease_seconds,
-            },
+        log_event(
+            self._logger,
+            logging.INFO,
+            "worker_started",
+            worker_id=self._worker_id,
+            batch_size=self._batch_size,
+            poll_interval_seconds=self._poll_interval_seconds,
+            lease_seconds=self._lease_seconds,
         )
         while True:
             processed_jobs = await self.process_batch()
