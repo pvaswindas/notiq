@@ -52,6 +52,7 @@ from src.modules.notifications.application.use_cases.replay_dead_letter_job_use_
 from src.modules.notifications.application.use_cases.send_notification_use_case import SendNotificationUseCase
 from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
 from src.modules.notifications.domain.services.idempotency_service import IdempotencyService
+from src.shared.observability.metrics_service import MetricsService, build_metrics_service
 
 
 @dataclass(slots=True)
@@ -77,6 +78,7 @@ class Container:
     """
 
     id_generator: IdGeneratorPort
+    metrics_service: MetricsService
     send_notification_use_case: SendNotificationUseCase
     process_delivery_job_use_case: ProcessDeliveryJobUseCase
     create_workspace_use_case: CreateWorkspaceUseCase
@@ -145,6 +147,11 @@ class ContainerFactory:
         delivery_rate_limiter = RedisDeliveryRateLimiter()
         id_generator = UUIDIdGenerator()
         configuration_validator = ProviderConfigurationValidator()
+        metrics_service = build_metrics_service(
+            backend=settings.metrics_backend,
+            redis_url=settings.redis_url,
+            redis_namespace=settings.metrics_redis_namespace,
+        )
 
         public_api_workspace_repository = PublicApiPostgresWorkspaceRepository()
         audit_log_repository = PostgresAuditLogRepository()
@@ -174,6 +181,7 @@ class ContainerFactory:
             message_mapper=message_mapper,
             idempotency_service=idempotency_service,
             id_generator=id_generator,
+            metrics_service=metrics_service,
         )
 
         process_delivery_job_use_case = ProcessDeliveryJobUseCase(
@@ -184,11 +192,13 @@ class ContainerFactory:
             delivery_safety_service=delivery_safety_service,
             settings=settings,
             id_generator=id_generator,
+            metrics_service=metrics_service,
         )
         notification_worker = NotificationWorker(
             worker_id=settings.worker_id,
             delivery_job_repository=delivery_job_repository,
             process_delivery_job_use_case=process_delivery_job_use_case,
+            metrics_service=metrics_service,
             batch_size=settings.worker_batch_size,
             poll_interval_seconds=settings.worker_poll_interval_seconds,
             lease_seconds=settings.worker_lease_seconds,
@@ -244,6 +254,7 @@ class ContainerFactory:
 
         return Container(
             id_generator=id_generator,
+            metrics_service=metrics_service,
             send_notification_use_case=send_notification_use_case,
             process_delivery_job_use_case=process_delivery_job_use_case,
             create_workspace_use_case=create_workspace_use_case,

@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     app_mode: str = Field(default="api", alias="APP_MODE")
     database_url: str = Field(default="postgresql+asyncpg://notiq:notiq@localhost:5432/notiq", alias="DATABASE_URL")
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    metrics_backend: str = Field(default="redis", alias="METRICS_BACKEND")
+    metrics_redis_namespace: str = Field(default="metrics:notiq", alias="METRICS_REDIS_NAMESPACE")
     worker_id: str = Field(default="worker-1", alias="WORKER_ID")
     worker_batch_size: int = Field(default=50, alias="WORKER_BATCH_SIZE")
     worker_poll_interval_seconds: float = Field(default=1.0, alias="WORKER_POLL_INTERVAL_SECONDS")
