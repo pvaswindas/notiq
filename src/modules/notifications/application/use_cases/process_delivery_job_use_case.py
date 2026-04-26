@@ -10,8 +10,11 @@ from src.modules.notifications.application.services.delivery_safety_service impo
     DeliverySafetyService,
 )
 from src.modules.notifications.domain.entities.channel import Channel
+from src.modules.notifications.domain.entities.dead_letter_job import DeadLetterJob
 from src.modules.notifications.domain.entities.delivery_job import DeliveryJob, DeliveryJobStatus
+from src.modules.notifications.ports.dead_letter_job_repository_port import DeadLetterJobRepositoryPort
 from src.modules.notifications.ports.delivery_job_repository_port import DeliveryJobRepositoryPort
+from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
 from src.modules.notifications.ports.provider_account_repository_port import ProviderAccountRepositoryPort
 from src.modules.notifications.ports.sender_registry_port import SenderRegistryPort
 
@@ -24,16 +27,20 @@ class ProcessDeliveryJobUseCase:
         sender_registry: SenderRegistryPort,
         provider_account_repository: ProviderAccountRepositoryPort,
         delivery_job_repository: DeliveryJobRepositoryPort,
+        dead_letter_job_repository: DeadLetterJobRepositoryPort,
         delivery_safety_service: DeliverySafetyService,
         settings: Settings,
+        id_generator: IdGeneratorPort,
     ) -> None:
         """Initialize dependencies for sender resolution, account lookup, and updates."""
 
         self._sender_registry = sender_registry
         self._provider_account_repository = provider_account_repository
         self._delivery_job_repository = delivery_job_repository
+        self._dead_letter_job_repository = dead_letter_job_repository
         self._delivery_safety_service = delivery_safety_service
         self._settings = settings
+        self._id_generator = id_generator
         self._logger = logging.getLogger(__name__)
 
     async def execute(self, job: DeliveryJob) -> None:
@@ -115,9 +122,50 @@ class ProcessDeliveryJobUseCase:
                 next_retry_at=None,
             )
             await self._delivery_job_repository.update(failed_job)
+            await self._capture_dead_letter(job=job, exc=exc)
             self._logger.error(
                 "notification job failed",
                 extra={"job_id": job.job_id, "workspace_id": job.workspace_id, "error": failed_job.last_error},
+            )
+
+    async def _capture_dead_letter(self, job: DeliveryJob, exc: Exception) -> None:
+        """Persist a DLQ entry for a job that has reached terminal failure.
+
+        This is best-effort and must not interrupt the worker's lifecycle
+        updates (FAILED status is the system-of-record signal).
+        """
+
+        reason = self._format_failure_reason(exc)
+        now = datetime.now(timezone.utc)
+        dead_letter = DeadLetterJob(
+            dead_letter_job_id=self._id_generator.new_id(),
+            original_job_id=job.job_id,
+            workspace_id=job.workspace_id,
+            channel_id=job.channel_id,
+            provider=job.provider_key,
+            payload=dict(job.event_payload),
+            failure_reason=self._truncate_failure_reason(reason),
+            failure_count=max(1, job.retry_count + 1),
+            last_attempt_at=now,
+            created_at=now,
+        )
+        try:
+            await self._dead_letter_job_repository.save(dead_letter)
+            self._logger.error(
+                "dead letter job captured",
+                extra={
+                    "dead_letter_job_id": dead_letter.dead_letter_job_id,
+                    "original_job_id": dead_letter.original_job_id,
+                    "workspace_id": dead_letter.workspace_id,
+                    "channel_id": dead_letter.channel_id,
+                    "provider": dead_letter.provider,
+                    "failure_count": dead_letter.failure_count,
+                },
+            )
+        except Exception as capture_exc:
+            self._logger.exception(
+                "failed to capture dead letter job",
+                extra={"job_id": job.job_id, "workspace_id": job.workspace_id, "error": str(capture_exc)},
             )
 
     async def _defer_rate_limited_job(self, job: DeliveryJob, rate_limit_result: DeliveryRateLimitResult) -> None:
@@ -169,3 +217,27 @@ class ProcessDeliveryJobUseCase:
         if len(error) <= 1024:
             return error
         return f"{error[:1021]}..."
+
+    @staticmethod
+    def _truncate_failure_reason(error: str) -> str:
+        if len(error) <= 4096:
+            return error
+        return f"{error[:4093]}..."
+
+    @staticmethod
+    def _format_failure_reason(exc: Exception) -> str:
+        """Create a provider-aware failure reason string for DLQ storage."""
+
+        base = f"{exc.__class__.__name__}: {exc}"
+        if isinstance(exc, httpx.HTTPStatusError):
+            status = getattr(exc.response, "status_code", None)
+            try:
+                body = exc.response.text
+            except Exception:
+                body = ""
+            body = body.strip()
+            if body:
+                body = body[:2048]
+                return f"{base} (status_code={status}, response_body={body})"
+            return f"{base} (status_code={status})"
+        return base
