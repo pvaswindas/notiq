@@ -1,4 +1,5 @@
 import logging
+import time
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +18,8 @@ from src.modules.notifications.ports.delivery_job_repository_port import Deliver
 from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
 from src.modules.notifications.ports.provider_account_repository_port import ProviderAccountRepositoryPort
 from src.modules.notifications.ports.sender_registry_port import SenderRegistryPort
+from src.shared.observability.metrics_service import MetricsService
+from src.shared.observability.structured_logging import log_event, log_exception
 
 
 class ProcessDeliveryJobUseCase:
@@ -31,6 +34,7 @@ class ProcessDeliveryJobUseCase:
         delivery_safety_service: DeliverySafetyService,
         settings: Settings,
         id_generator: IdGeneratorPort,
+        metrics_service: MetricsService,
     ) -> None:
         """Initialize dependencies for sender resolution, account lookup, and updates."""
 
@@ -41,6 +45,7 @@ class ProcessDeliveryJobUseCase:
         self._delivery_safety_service = delivery_safety_service
         self._settings = settings
         self._id_generator = id_generator
+        self._metrics = metrics_service
         self._logger = logging.getLogger(__name__)
 
     async def execute(self, job: DeliveryJob) -> None:
@@ -51,6 +56,19 @@ class ProcessDeliveryJobUseCase:
         - Resolve sender by provider key and attempt delivery.
         - Mark success, retry with exponential backoff, or fail permanently.
         """
+
+        start = time.perf_counter()
+        self._metrics.increment("notifications_processed_total")
+        log_event(
+            self._logger,
+            logging.INFO,
+            "notification_job_started",
+            job_id=job.job_id,
+            workspace_id=job.workspace_id,
+            channel_id=job.channel_id,
+            provider=job.provider_key,
+            retry_count=job.retry_count,
+        )
 
         try:
             if job.provider_account_id is None:
@@ -95,6 +113,18 @@ class ProcessDeliveryJobUseCase:
                 next_retry_at=None,
             )
             await self._delivery_job_repository.update(success_job)
+            self._metrics.increment("notifications_success_total")
+            log_event(
+                self._logger,
+                logging.INFO,
+                "notification_processed",
+                job_id=job.job_id,
+                workspace_id=job.workspace_id,
+                status="success",
+                provider=job.provider_key,
+                duration_ms=int((time.perf_counter() - start) * 1000),
+                retry_count=job.retry_count,
+            )
             return
         except Exception as exc:
             if self._is_transient_error(exc) and job.retry_count < job.max_retries:
@@ -110,6 +140,18 @@ class ProcessDeliveryJobUseCase:
                     processing_expires_at=None,
                 )
                 await self._delivery_job_repository.update(retry_job)
+                self._metrics.increment("notifications_retried_total")
+                log_event(
+                    self._logger,
+                    logging.WARNING,
+                    "notification_retry_scheduled",
+                    job_id=job.job_id,
+                    workspace_id=job.workspace_id,
+                    provider=job.provider_key,
+                    retry_count=next_retry_count,
+                    next_retry_at=next_retry_at,
+                    error=self._truncate_error(str(exc)),
+                )
                 return
 
             failed_job = replace(
@@ -122,10 +164,19 @@ class ProcessDeliveryJobUseCase:
                 next_retry_at=None,
             )
             await self._delivery_job_repository.update(failed_job)
+            self._metrics.increment("notifications_failed_total")
             await self._capture_dead_letter(job=job, exc=exc)
-            self._logger.error(
-                "notification job failed",
-                extra={"job_id": job.job_id, "workspace_id": job.workspace_id, "error": failed_job.last_error},
+            log_event(
+                self._logger,
+                logging.ERROR,
+                "notification_processed",
+                job_id=job.job_id,
+                workspace_id=job.workspace_id,
+                status="failed",
+                provider=job.provider_key,
+                duration_ms=int((time.perf_counter() - start) * 1000),
+                retry_count=failed_job.retry_count,
+                error=failed_job.last_error,
             )
 
     async def _capture_dead_letter(self, job: DeliveryJob, exc: Exception) -> None:
@@ -151,21 +202,26 @@ class ProcessDeliveryJobUseCase:
         )
         try:
             await self._dead_letter_job_repository.save(dead_letter)
-            self._logger.error(
-                "dead letter job captured",
-                extra={
-                    "dead_letter_job_id": dead_letter.dead_letter_job_id,
-                    "original_job_id": dead_letter.original_job_id,
-                    "workspace_id": dead_letter.workspace_id,
-                    "channel_id": dead_letter.channel_id,
-                    "provider": dead_letter.provider,
-                    "failure_count": dead_letter.failure_count,
-                },
+            self._metrics.increment("dead_letter_total")
+            log_event(
+                self._logger,
+                logging.ERROR,
+                "dead_letter_inserted",
+                dead_letter_job_id=dead_letter.dead_letter_job_id,
+                original_job_id=dead_letter.original_job_id,
+                workspace_id=dead_letter.workspace_id,
+                channel_id=dead_letter.channel_id,
+                provider=dead_letter.provider,
+                failure_count=dead_letter.failure_count,
             )
         except Exception as capture_exc:
-            self._logger.exception(
-                "failed to capture dead letter job",
-                extra={"job_id": job.job_id, "workspace_id": job.workspace_id, "error": str(capture_exc)},
+            log_exception(
+                self._logger,
+                "dead_letter_insert_failed",
+                job_id=job.job_id,
+                workspace_id=job.workspace_id,
+                provider=job.provider_key,
+                error=str(capture_exc),
             )
 
     async def _defer_rate_limited_job(self, job: DeliveryJob, rate_limit_result: DeliveryRateLimitResult) -> None:
@@ -187,17 +243,20 @@ class ProcessDeliveryJobUseCase:
             next_retry_at=next_retry_at,
         )
         await self._delivery_job_repository.update(deferred_job)
-        self._logger.warning(
-            "notification job deferred by rate limit",
-            extra={
-                "job_id": job.job_id,
-                "workspace_id": job.workspace_id,
-                "channel_id": job.channel_id,
-                "provider_key": job.provider_key,
-                "violated_scope": rate_limit_result.violated_scope,
-                "violated_key": rate_limit_result.violated_key,
-                "next_retry_at": next_retry_at.isoformat(),
-            },
+        self._metrics.increment("notifications_rate_limited_total")
+        log_event(
+            self._logger,
+            logging.WARNING,
+            "notification_rate_limited",
+            job_id=job.job_id,
+            workspace_id=job.workspace_id,
+            channel_id=job.channel_id,
+            provider=job.provider_key,
+            violated_scope=rate_limit_result.violated_scope,
+            violated_key=rate_limit_result.violated_key,
+            limit=rate_limit_result.limit,
+            window_seconds=rate_limit_result.window_seconds,
+            next_retry_at=next_retry_at,
         )
 
     @staticmethod

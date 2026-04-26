@@ -1,3 +1,5 @@
+import logging
+
 from src.modules.notifications.application.dto.queued_delivery_dto import QueuedDeliveryResultDTO
 from src.modules.notifications.application.dto.send_notification_command import SendNotificationCommand
 from src.modules.notifications.application.mappers.event_message_mapper import EventMessageMapper
@@ -10,6 +12,8 @@ from src.modules.notifications.ports.id_generator_port import IdGeneratorPort
 from src.modules.notifications.ports.idempotency_repository_port import IdempotencyRepositoryPort
 from src.modules.notifications.ports.workspace_repository_port import WorkspaceRepositoryPort
 from src.modules.notifications.domain.services.idempotency_service import IdempotencyService
+from src.shared.observability.metrics_service import MetricsService
+from src.shared.observability.structured_logging import log_event
 
 
 class SendNotificationUseCase:
@@ -25,6 +29,7 @@ class SendNotificationUseCase:
         message_mapper: EventMessageMapper,
         idempotency_service: IdempotencyService,
         id_generator: IdGeneratorPort,
+        metrics_service: MetricsService,
     ) -> None:
         """Initialize all ports/services required for notification intake flow."""
 
@@ -36,6 +41,8 @@ class SendNotificationUseCase:
         self._message_mapper = message_mapper
         self._idempotency_service = idempotency_service
         self._id_generator = id_generator
+        self._metrics = metrics_service
+        self._logger = logging.getLogger(__name__)
 
     async def execute(self, command: SendNotificationCommand) -> QueuedDeliveryResultDTO:
         """Validate input, resolve channels/accounts, dedupe, and enqueue jobs.
@@ -48,6 +55,17 @@ class SendNotificationUseCase:
 
         if not command.workspace_id or not command.event_id or not command.event_name:
             raise ValueError("workspace_id, event_id, and event_name are required")
+
+        self._metrics.increment("notifications_received_total")
+        log_event(
+            self._logger,
+            logging.INFO,
+            "notification_received",
+            workspace_id=command.workspace_id,
+            event_id=command.event_id,
+            event_name=command.event_name,
+            channel_ids_count=len(command.channel_ids or []),
+        )
 
         workspace = await self._workspace_repository.get_by_id(command.workspace_id)
         if workspace is None:
@@ -99,4 +117,15 @@ class SendNotificationUseCase:
             await self._delivery_job_repository.save(job)
             enqueued_jobs += 1
 
+        log_event(
+            self._logger,
+            logging.INFO,
+            "notification_enqueued",
+            workspace_id=command.workspace_id,
+            event_id=command.event_id,
+            event_name=command.event_name,
+            active_channels_count=len(active_channels),
+            enqueued_jobs=enqueued_jobs,
+            skipped_duplicates=skipped_duplicates,
+        )
         return QueuedDeliveryResultDTO(enqueued_jobs=enqueued_jobs, skipped_duplicates=skipped_duplicates)
