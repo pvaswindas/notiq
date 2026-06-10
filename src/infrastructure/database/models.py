@@ -40,7 +40,7 @@ class ChannelModel(Base):
 
     __table_args__ = (
         Index("ix_channels_workspace_is_active", "workspace_id", "is_active"),
-        Index("ix_channels_workspace_provider", "workspace_id", "provider"),
+        Index("ix_channels_workspace_provider", "workspace_id", "provider_key"),
     )
 
 
