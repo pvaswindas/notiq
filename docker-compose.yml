@@ -12,7 +12,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U notiq -d notiq"]
+      test: [ "CMD-SHELL", "pg_isready -U notiq -d notiq" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -22,7 +22,7 @@ services:
     ports:
       - "6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -56,6 +56,56 @@ services:
       WORKER_POLL_INTERVAL_SECONDS: 1.0
       WORKER_LEASE_SECONDS: 30
     command: python -m src.run_worker
+
+  postgres-test:
+    image: postgres:16
+    profiles:
+      - test
+    environment:
+      POSTGRES_DB: notiq_test
+      POSTGRES_USER: notiq
+      POSTGRES_PASSWORD: notiq
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U notiq -d notiq_test" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-test:
+    image: redis:7
+    profiles:
+      - test
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  test:
+    build: .
+    profiles:
+      - test
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://notiq:notiq@postgres-test:5432/notiq_test
+      REDIS_URL: redis://redis-test:6379/1
+      POSTGRES_HOST: postgres-test
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: notiq_test
+      POSTGRES_USER: notiq
+      POSTGRES_PASSWORD: notiq
+      ENVIRONMENT: test
+    volumes:
+      - ./:/app
+    command: >
+      sh -c "pip install --no-cache-dir -q -r requirements-dev.txt &&
+             python -m pytest --tb=short -v"
 
 volumes:
   postgres_data:
