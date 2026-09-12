@@ -1,137 +1,130 @@
 # Notiq
 
-Notiq is a multi-tenant notification infrastructure platform for accepting product events and delivering notifications through external providers such as Telegram.
+**Notiq** is a multi-tenant notification infrastructure platform designed to ingest application events and manage asynchronous delivery across external notification providers (such as Telegram and Email).
 
-It exists to prevent every product team from rebuilding the same operationally sensitive notification pipeline: routing, deduplication, throttling, retries, and asynchronous delivery.
+It centralizes event routing, deduplication, rate limiting, retries, and dead-letter queue management, preventing product services from rebuilding custom notification pipelines.
 
-## 1. Introduction
+---
 
-In most systems, notifications begin as application events (`user.created`, `payment.failed`, etc.).
-Without a dedicated platform, event handling logic is duplicated across services, delivery reliability is inconsistent, and provider integrations leak into business code.
+## Tech Stack
 
-Notiq centralizes this concern.
-It provides a clean API for event submission and a backend pipeline that handles delivery orchestration with clear architectural boundaries.
+- **Core & Runtime**: Python 3.10+ (Docker: 3.12-slim)
+- **Web Framework**: FastAPI, Uvicorn
+- **Database & Persistence**: PostgreSQL 16+, SQLAlchemy 2.0 (AsyncIO), asyncpg, Alembic
+- **Cache & Rate Limiting**: Redis 7+, `redis-py`
+- **Validation & Settings**: Pydantic v2, Pydantic-Settings
+- **HTTP Client**: HTTPX
+- **Authentication**: PyJWT, Bcrypt
+- **Testing**: pytest, pytest-asyncio, Factory Boy
 
-## 2. Core Concepts
+---
 
-### Workspace
-A workspace is the tenant boundary. All channels, limits, and delivery jobs are scoped to a workspace.
+## Architecture Overview
 
-### Channel
-A channel is a configured delivery destination for a workspace (for example, a Telegram chat).
-It includes a provider key and destination address.
+Notiq is structured as a **Modular Monolith** using **Hexagonal Architecture (Ports and Adapters)**:
 
-### Event
-An event is the inbound notification trigger. It contains an event name, payload, and workspace context.
-The event payload remains intentionally generic.
+- `src/modules/notifications/domain`: Domain entities (`DeliveryJob`, `Channel`, `Workspace`, `DeadLetterJob`), value objects, and idempotency services.
+- `src/modules/notifications/application`: Primary use cases (`SendNotificationUseCase`, `ProcessDeliveryJobUseCase`), DTOs, and safety services.
+- `src/modules/notifications/ports`: Interface contracts for repositories, senders, and registries.
+- `src/adapters`: Inbound HTTP controllers (notifications, workspaces, channels, admin RBAC, API keys, DLQ) and outbound provider integrations (Telegram, Email).
+- `src/infrastructure`: PostgreSQL persistence adapters (using `FOR UPDATE SKIP LOCKED` for worker claiming) and Redis rate limiters.
+- `src/bootstrap`: Application composition root (`ContainerFactory`), FastAPI app setup (`ApplicationFactory`), and worker runner.
 
-### DeliveryJob
-A delivery job is the executable delivery unit produced from `(event, channel)`.
-It tracks lifecycle status (`PENDING`, `PROCESSING`, `SUCCESS`, `FAILED`), retry state, and error context.
+---
 
-## 3. High-Level Architecture
+## Quick-Start Instructions
 
-Notiq uses Hexagonal Architecture (Ports and Adapters) inside a modular monolith.
+### Prerequisites
 
-Why this architecture:
-- Keep business logic independent from frameworks and providers
-- Make infrastructure replaceable without touching core logic
-- Keep testing focused and deterministic at each boundary
+- Python 3.10+
+- PostgreSQL 16+
+- Redis 7+
+- Docker & Docker Compose (optional for containerized run)
 
-High-level layers:
-- `domain`: entities, value objects, policy services
-- `application`: use cases and orchestration
-- `ports`: contracts consumed by application/domain
-- `adapters`: HTTP and provider-specific integrations
-- `infrastructure`: concrete persistence/queue/idempotency implementations
-- `bootstrap`: dependency injection and runtime startup/workers
+---
 
-## 4. Notification Flow
+### Local Development Setup
 
-End-to-end runtime flow:
-1. Client sends `POST /notifications/send` or the compatibility endpoint `POST /events`.
-2. HTTP adapter maps the request to `SendNotificationUseCase`.
-3. Use case validates input, checks workspace rate limits, and computes idempotency fingerprints.
-4. Active channels are selected for the workspace.
-5. One `DeliveryJob` is created per channel and persisted in the delivery queue store.
-6. Background worker polls pending delivery jobs in batches.
-7. `ProcessDeliveryJobUseCase` executes each job.
-8. Sender registry resolves provider adapter (for example Telegram).
-9. Provider attempts delivery.
-10. Job transitions to `SUCCESS`, `PENDING` (with backoff), or `FAILED`.
+1. **Clone the repository and set up a virtual environment**:
+   ```bash
+   git clone <repository-url>
+   cd notiq
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
 
-## 5. Project Structure
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   pip install -r requirements-dev.txt
+   ```
 
-```text
-src/
-  bootstrap/
-    app.py                     # FastAPI app factory and lifecycle hooks
-    container.py               # Composition root (dependency injection)
-    workers/
-      notification_worker.py   # Polling worker for delivery jobs
+3. **Configure environment variables**:
+   ```bash
+   cp .env.example .env
+   ```
 
-  modules/
-    notifications/
-      domain/                  # Entities, value objects, policies
-      application/             # Use cases, DTOs, mappers, registry
-      ports/                   # Interface contracts
-      adapters/                # HTTP inbound, provider outbound
+4. **Run database migrations**:
+   ```bash
+   alembic upgrade head
+   ```
 
-  infrastructure/
-    persistence/               # Database-backed repositories
-    redis/                     # Shared Redis-backed infrastructure
-    id_generator/              # ID generation implementation
+5. **Start the API Server**:
+   ```bash
+   python3 -m src.run
+   ```
 
-  shared/                      # Shared utilities
-```
+6. **Start the Background Notification Worker** (in a separate terminal window):
+   ```bash
+   python3 -m src.run_worker
+   ```
 
-## 6. Running the System
+---
 
-### Start
+### Running with Docker Compose
+
+To launch the full environment (API, Worker, PostgreSQL, and Redis):
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python3 -m src.run
-python3 -m src.run_worker
+docker compose up --build
 ```
 
-### Basic runtime validation
+---
+
+### Running Automated Tests
+
+Run the test suite using Docker Compose:
 
 ```bash
-python3 -m compileall -q src
+# Run unit and integration tests inside isolated test containers
+make test
 ```
 
-### Tests
-
-Automated tests are not yet committed in this baseline.
-Use syntax validation plus API smoke checks during development:
+Or run pytest directly locally:
 
 ```bash
-python3 -m compileall -q src
-curl -X POST http://127.0.0.1:8000/notifications/send \
-  -H 'Content-Type: application/json' \
-  -d '{"workspace_id":"workspace-1","event_id":"evt-1","event_name":"healthcheck","payload":{}}'
+pytest
 ```
 
-### Example request
+---
+
+### Quick Verification Example
+
+Send a test notification event via cURL:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/notifications/send \
-  -H 'Content-Type: application/json' \
+  -H "Content-Type: application/json" \
   -d '{
     "workspace_id": "workspace-1",
     "event_id": "evt-1001",
     "event_name": "order.created",
-    "payload": {"order_id": "ORD-42", "total": 1999}
+    "payload": { "order_id": "ORD-42", "amount": 99.00 }
   }'
 ```
 
-## 7. Future Roadmap
+Inspect metric counters:
 
-- Replace in-memory repositories with durable database-backed adapters
-- Introduce provider-specific transient/permanent error taxonomy
-- Add dead-letter handling for repeatedly failed jobs
-- Add metrics, tracing, and structured logging sinks
-- Add additional providers (email, Slack, webhooks)
+```bash
+curl http://127.0.0.1:8000/metrics
+```
